@@ -13,6 +13,20 @@ import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
+from emlp.nn import uniform_rep
+from emlp.reps import Rep, Scalar, Vector, T
+from emlp.groups import SO, D, C
+import emlp.nn.pytorch as eqnn
+from emlp.nn.pytorch import EMLPBlock, Linear
+# Define the SO(3) group for the Reacher environment
+G = C(4)
+
+# Create the state and action representations
+state_rep = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) 
+action_rep = 2*Scalar(G)
+
+state_rep_q = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) + 2*Scalar(G) 
+action_rep_q = Scalar(G)
 
 
 @dataclass
@@ -25,9 +39,9 @@ class Args:
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    track: bool = False
+    track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "cleanRL"
+    wandb_project_name: str = "equivaraince-rl"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -35,7 +49,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "Hopper-v4"
+    env_id: str = "Reacher-v4"
     """the environment id of the task"""
     total_timesteps: int = 1000000
     """total timesteps of the experiments"""
@@ -61,6 +75,18 @@ class Args:
     """Entropy regularization coefficient."""
     autotune: bool = True
     """automatic tuning of the entropy coefficient"""
+    use_emlp: bool = False
+    """use emlp for the Q function"""
+class CustomObservationWrapper(gym.ObservationWrapper):
+    def __init__(self, env):
+        super(CustomObservationWrapper, self).__init__(env)
+        assert isinstance(env.observation_space, gym.spaces.Box), "This wrapper only works with Box observation spaces"
+        self.observation_space = env.observation_space
+
+    def observation(self, observation):
+        obs = observation.copy()
+        obs[1], obs[2] = obs[2], obs[1]
+        return obs
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -70,11 +96,34 @@ def make_env(env_id, seed, idx, capture_video, run_name):
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
             env = gym.make(env_id)
+        env = CustomObservationWrapper(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.action_space.seed(seed)
         return env
 
     return thunk
+
+def save_actor(run_name, actor):
+    name = sanitize_run_name(run_name)
+    model_dir = "models"  # Directory to store the model files
+    os.makedirs(model_dir, exist_ok=True)  # Create directory if it doesn't exist
+    model_path = os.path.join(model_dir, f"{name}_actor.pth")
+    torch.save(actor.state_dict(), model_path)
+    
+    artifact = wandb.Artifact(name, type="model")
+    artifact.add_file(model_path)
+    wandb.log_artifact(artifact)
+
+def load_actor(run_name, actor):
+    artifact = wandb.use_artifact(f"{run_name}:latest", type="model")
+    artifact_dir = artifact.download()
+    model_path = os.path.join(artifact_dir, f"{run_name}_actor.pth")
+    actor.load_state_dict(torch.load(model_path))
+
+import re
+
+def sanitize_run_name(run_name):
+    return re.sub(r'[^a-zA-Z0-9-_\.]', '_', run_name)
 
 
 # ALGO LOGIC: initialize agent here:
@@ -91,6 +140,33 @@ class SoftQNetwork(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+
+class InvariantSoftQNetwork(nn.Module):
+    def __init__(self, env, rep_in, group, ch=256, num_layers=2):
+        super().__init__()
+        self.rep_in = rep_in(group)
+        
+        self.G = group
+        if isinstance(ch, int):
+            middle_layers = num_layers * [uniform_rep(ch, group)]
+        elif isinstance(ch, Rep):
+            middle_layers = num_layers * [ch(group)]
+        else:
+            middle_layers = [(c(group) if isinstance(c, Rep) else uniform_rep(c, group)) for c in ch]
+        
+        reps = [self.rep_in] + middle_layers
+        
+        # Define equivariant layers using EMLPBlock
+        self.network = nn.Sequential(
+            *[EMLPBlock(rin, rout) for rin, rout in zip(reps, reps[1:])],
+            Linear(reps[-1], Scalar(group))
+        )
+
+    def forward(self, state, action):
+        # Encode state equivariantly
+        x = torch.cat([state, action], dim=1)
+        return self.network(x)
+
 
 
 LOG_STD_MAX = 2
@@ -136,6 +212,65 @@ class Actor(nn.Module):
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
 
+class EquiActor(nn.Module):
+    def __init__(self, env, rep_in, rep_out, group, ch=256, num_layers=2):
+        super().__init__()
+        self.rep_in = rep_in(group)
+        self.rep_out = rep_out(group)
+        
+        self.G = group
+        if isinstance(ch, int):
+            middle_layers = num_layers * [uniform_rep(ch, group)]
+        elif isinstance(ch, Rep):
+            middle_layers = num_layers * [ch(group)]
+        else:
+            middle_layers = [(c(group) if isinstance(c, Rep) else uniform_rep(c, group)) for c in ch]
+        
+        reps = [self.rep_in] + middle_layers
+        
+        # Define equivariant layers using EMLPBlock
+        self.layers = nn.ModuleList()
+        for rin, rout in zip(reps, reps[1:]):
+            self.layers.append(EMLPBlock(rin, rout))
+        
+        # Final layers for mean and log_std
+        self.fc_mean = Linear(reps[-1], self.rep_out)
+        self.fc_logstd = Linear(reps[-1], Vector(G))
+        
+        # action rescaling
+        self.register_buffer(
+            "action_scale", torch.tensor((env.action_space.high - env.action_space.low) / 2.0, dtype=torch.float32)
+        )
+        self.register_buffer(
+            "action_bias", torch.tensor((env.action_space.high + env.action_space.low) / 2.0, dtype=torch.float32)
+        )
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = F.relu(layer(x))
+        
+        mean = self.fc_mean(x)
+        log_std = self.fc_logstd(x)
+        log_std = torch.tanh(log_std)
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)  # From SpinUp / Denis Yarats
+
+        return mean, log_std
+
+    def get_action(self, x):
+        mean, log_std = self(x)
+        std = log_std.exp()
+        normal = torch.distributions.Normal(mean, std)
+        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+        y_t = torch.tanh(x_t)
+        action = y_t * self.action_scale + self.action_bias
+        log_prob = normal.log_prob(x_t)
+        # Enforcing Action Bound
+        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
+        log_prob = log_prob.sum(1, keepdim=True)
+        mean = torch.tanh(mean) * self.action_scale + self.action_bias
+        return action, log_prob, mean
+
+
 
 if __name__ == "__main__":
     import stable_baselines3 as sb3
@@ -148,7 +283,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         )
 
     args = tyro.cli(Args)
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__equi={args.use_emlp}"
     if args.track:
         import wandb
 
@@ -181,15 +316,29 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     max_action = float(envs.single_action_space.high[0])
 
-    actor = Actor(envs).to(device)
-    qf1 = SoftQNetwork(envs).to(device)
-    qf2 = SoftQNetwork(envs).to(device)
-    qf1_target = SoftQNetwork(envs).to(device)
-    qf2_target = SoftQNetwork(envs).to(device)
-    qf1_target.load_state_dict(qf1.state_dict())
-    qf2_target.load_state_dict(qf2.state_dict())
-    q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
-    actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
+    if args.use_emlp:
+        actor = EquiActor(envs, state_rep, action_rep, G, ch=64, num_layers=2).to(device)
+    else:
+        actor = Actor(envs).to(device)
+    
+    if args.use_emlp:
+        qf1 = InvariantSoftQNetwork(envs, state_rep_q, G, ch=64, num_layers=2).to(device=device)	
+        qf2 = InvariantSoftQNetwork(envs, state_rep_q, G, ch=64, num_layers=2).to(device=device)	
+        qf1_target = InvariantSoftQNetwork(envs, state_rep_q, G, ch=64, num_layers=2).to(device=device)	
+        qf2_target = InvariantSoftQNetwork(envs, state_rep_q, G, ch=64, num_layers=2).to(device=device)	
+        qf1_target.load_state_dict(qf1.state_dict())
+        qf2_target.load_state_dict(qf2.state_dict())
+        q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
+        actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
+    else:
+        qf1 = SoftQNetwork(envs).to(device)
+        qf2 = SoftQNetwork(envs).to(device)
+        qf1_target = SoftQNetwork(envs).to(device)
+        qf2_target = SoftQNetwork(envs).to(device)
+        qf1_target.load_state_dict(qf1.state_dict())
+        qf2_target.load_state_dict(qf2.state_dict())
+        q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
+        actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
     # Automatic entropy tuning
     if args.autotune:
@@ -306,5 +455,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 if args.autotune:
                     writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
 
+    save_actor(run_name, actor)
     envs.close()
     writer.close()
