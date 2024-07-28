@@ -1,0 +1,19 @@
+name: equivariance-rl
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - torch
+    - gymnasium[mujoco]
+    - matplotlib
+    - "cython<3"
+    - pybullet
+    - scipy
+    - stable-baselines3[extra]
+    - wandb
+    - emlp
+# conda env create -f environment.yml
+# conda activate equivariance-rl
