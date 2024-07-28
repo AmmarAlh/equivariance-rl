@@ -18,15 +18,6 @@ from emlp.reps import Rep, Scalar, Vector, T
 from emlp.groups import SO, D, C
 import emlp.nn.pytorch as eqnn
 from emlp.nn.pytorch import EMLPBlock, Linear
-# Define the SO(3) group for the Reacher environment
-G = C(4)
-
-# Create the state and action representations
-state_rep = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) 
-action_rep = 2*Scalar(G)
-
-state_rep_q = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) + 2*Scalar(G) 
-action_rep_q = Scalar(G)
 
 
 @dataclass
@@ -77,6 +68,9 @@ class Args:
     """automatic tuning of the entropy coefficient"""
     use_emlp: bool = False
     """use emlp for the Q function"""
+    group: str = "C4"
+    """the group to use (C4, C8, D4, SO2)"""
+
 class CustomObservationWrapper(gym.ObservationWrapper):
     def __init__(self, env):
         super(CustomObservationWrapper, self).__init__(env)
@@ -284,8 +278,28 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     args = tyro.cli(Args)
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__equi={args.use_emlp}"
+
+    # Map the group argument to the actual group object
+    group_mapping = {
+        "C4": C(4),
+        "C8": C(8),
+        "D4": D(4),
+        "SO2": SO(2)
+    }
+    if args.group not in group_mapping:
+        raise ValueError(f"Unknown group: {args.group}")
+    G = group_mapping[args.group]
+    # Create the state and action representations
+    state_rep = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) 
+    action_rep = 2*Scalar(G)
+
+    state_rep_q = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) + 2*Scalar(G) 
+    action_rep_q = Scalar(G)
+
+
     if args.track:
         import wandb
+        os.environ['WANDB_MODE'] = 'offline'  # Set wandb to offline mode
 
         wandb.init(
             project=args.wandb_project_name,
