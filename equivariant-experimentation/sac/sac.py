@@ -241,7 +241,7 @@ class EquiActor(nn.Module):
 
     def forward(self, x):
         for layer in self.layers:
-            x = F.relu(layer(x))
+            x = layer(x)
         
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
