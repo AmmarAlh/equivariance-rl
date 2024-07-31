@@ -275,6 +275,8 @@ class EquiActor(nn.Module):
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
 
+
+
 if __name__ == "__main__":
     import stable_baselines3 as sb3
 

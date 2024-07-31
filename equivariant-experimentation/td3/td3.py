@@ -13,7 +13,7 @@ import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
-
+from typing import Callable
 
 @dataclass
 class Args:
@@ -79,6 +79,49 @@ def make_env(env_id, seed, idx, capture_video, run_name):
         return env
 
     return thunk
+
+def evaluate(
+    model_path: str,
+    make_env: Callable,
+    env_id: str,
+    eval_episodes: int,
+    run_name: str,
+    Model: nn.Module,
+    device: torch.device = torch.device("cpu"),
+    capture_video: bool = True,
+    exploration_noise: float = 0.1,
+):
+    envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name)])
+    actor = Model[0](envs).to(device)
+    qf1 = Model[1](envs).to(device)
+    qf2 = Model[1](envs).to(device)
+    actor_params, qf1_params, qf2_params = torch.load(model_path, map_location=device)
+    actor.load_state_dict(actor_params)
+    actor.eval()
+    qf1.load_state_dict(qf1_params)
+    qf2.load_state_dict(qf2_params)
+    qf1.eval()
+    qf2.eval()
+    # note: qf1 and qf2 are not used in this script
+
+    obs, _ = envs.reset()
+    episodic_returns = []
+    while len(episodic_returns) < eval_episodes:
+        with torch.no_grad():
+            actions = actor(torch.Tensor(obs).to(device))
+            actions += torch.normal(0, actor.action_scale * exploration_noise)
+            actions = actions.cpu().numpy().clip(envs.single_action_space.low, envs.single_action_space.high)
+
+        next_obs, _, _, _, infos = envs.step(actions)
+        if "final_info" in infos:
+            for info in infos["final_info"]:
+                if "episode" not in info:
+                    continue
+                print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
+                episodic_returns += [info["episode"]["r"]]
+        obs = next_obs
+
+    return episodic_returns
 
 
 # ALGO LOGIC: initialize agent here:
@@ -270,7 +313,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save((actor.state_dict(), qf1.state_dict(), qf2.state_dict()), model_path)
         print(f"model saved to {model_path}")
-        from cleanrl_utils.evals.td3_eval import evaluate
 
         episodic_returns = evaluate(
             model_path,
@@ -284,13 +326,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         )
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
-        if args.upload_model:
-            from cleanrl_utils.huggingface import push_to_hub
-
-            repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
-            repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
-            push_to_hub(args, episodic_returns, repo_id, "TD3", f"runs/{run_name}", f"videos/{run_name}-eval")
 
     envs.close()
     writer.close()
