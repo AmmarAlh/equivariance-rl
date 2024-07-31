@@ -18,15 +18,22 @@ from emlp.reps import Rep, Scalar, Vector, T
 from emlp.groups import SO, D, C
 import emlp.nn.pytorch as eqnn
 from emlp.nn.pytorch import EMLPBlock, Linear
-# Define the SO(3) group for the Reacher environment
-G = C(4)
 
-# Create the state and action representations
-state_rep = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) 
-action_rep = 2*Scalar(G)
+# Determine the base directory where the script is located
+base_dir = os.path.dirname(os.path.abspath(__file__))
 
-state_rep_q = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) + 2*Scalar(G) 
-action_rep_q = Scalar(G)
+# Define the parent output directory
+output_dir = os.path.join(base_dir, 'output')
+
+# Paths for wandb, runs, and models directories inside the output directory
+wandb_dir = os.path.join(output_dir, '')
+runs_dir = os.path.join(output_dir, 'runs')
+models_dir = os.path.join(output_dir, 'models')
+
+# Create directories if they do not exist
+os.makedirs(wandb_dir, exist_ok=True)
+os.makedirs(runs_dir, exist_ok=True)
+os.makedirs(models_dir, exist_ok=True)
 
 
 @dataclass
@@ -43,7 +50,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "equivaraince-rl"
     """the wandb's project name"""
-    wandb_entity: str = None
+    wandb_entity: str = ""
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
@@ -51,7 +58,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "Reacher-v4"
     """the environment id of the task"""
-    total_timesteps: int = 1000000
+    total_timesteps: int = 250000
     """total timesteps of the experiments"""
     buffer_size: int = int(1e6)
     """the replay memory buffer size"""
@@ -77,6 +84,9 @@ class Args:
     """automatic tuning of the entropy coefficient"""
     use_emlp: bool = False
     """use emlp for the Q function"""
+    group: str = "C4"
+    """the group to use (C4, C8, D4, SO2)"""
+
 class CustomObservationWrapper(gym.ObservationWrapper):
     def __init__(self, env):
         super(CustomObservationWrapper, self).__init__(env)
@@ -105,9 +115,7 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
 def save_actor(run_name, actor):
     name = sanitize_run_name(run_name)
-    model_dir = "models"  # Directory to store the model files
-    os.makedirs(model_dir, exist_ok=True)  # Create directory if it doesn't exist
-    model_path = os.path.join(model_dir, f"{name}_actor.pth")
+    model_path = os.path.join(models_dir, f"{name}_actor.pth")
     torch.save(actor.state_dict(), model_path)
     
     artifact = wandb.Artifact(name, type="model")
@@ -167,11 +175,8 @@ class InvariantSoftQNetwork(nn.Module):
         x = torch.cat([state, action], dim=1)
         return self.network(x)
 
-
-
 LOG_STD_MAX = 2
 LOG_STD_MIN = -5
-
 
 class Actor(nn.Module):
     def __init__(self, env):
@@ -235,7 +240,7 @@ class EquiActor(nn.Module):
         
         # Final layers for mean and log_std
         self.fc_mean = Linear(reps[-1], self.rep_out)
-        self.fc_logstd = Linear(reps[-1], Vector(G))
+        self.fc_logstd = Linear(reps[-1], self.rep_out)
         
         # action rescaling
         self.register_buffer(
@@ -247,7 +252,7 @@ class EquiActor(nn.Module):
 
     def forward(self, x):
         for layer in self.layers:
-            x = F.relu(layer(x))
+            x = layer(x)
         
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
@@ -283,9 +288,33 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         )
 
     args = tyro.cli(Args)
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__equi={args.use_emlp}"
+    if args.use_emlp:
+        run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__equi={args.use_emlp}__group={args.group}"
+    else:
+        run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__equi={args.use_emlp}"
+    # Print the parsed arguments
+    print("Parsed arguments:", args)
+    # Map the group argument to the actual group object
+    group_mapping = {
+        "C4": C(4),
+        "C8": C(8),
+        "D4": D(4),
+        "SO2": SO(2)
+    }
+    if args.group not in group_mapping:
+        raise ValueError(f"Unknown group: {args.group}")
+    G = group_mapping[args.group]
+    # Create the state and action representations
+    state_rep = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) 
+    action_rep = 2*Scalar(G)
+
+    state_rep_q = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) + 2*Scalar(G) 
+    action_rep_q = Scalar(G)
+
+
     if args.track:
         import wandb
+        os.environ['WANDB_MODE'] = 'offline'  # Set wandb to offline mode
 
         wandb.init(
             project=args.wandb_project_name,
@@ -295,8 +324,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             name=run_name,
             monitor_gym=True,
             save_code=True,
+            dir=wandb_dir,  # Set wandb directory
         )
-    writer = SummaryWriter(f"runs/{run_name}")
+    writer = SummaryWriter(f"{runs_dir}/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
@@ -317,21 +347,33 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     max_action = float(envs.single_action_space.high[0])
 
     if args.use_emlp:
-        actor = EquiActor(envs, state_rep, action_rep, G, ch=64, num_layers=2).to(device)
+        actor = EquiActor(envs, state_rep, action_rep, G, ch=256, num_layers=2).to(device)
+        print(actor)
+        print("the number of parameters")
+        print(sum(p.numel() for p in actor.parameters()))	
     else:
         actor = Actor(envs).to(device)
+        print(actor)
+        print("the number of parameters")
+        print(sum(p.numel() for p in actor.parameters()))	
     
     if args.use_emlp:
-        qf1 = InvariantSoftQNetwork(envs, state_rep_q, G, ch=64, num_layers=2).to(device=device)	
-        qf2 = InvariantSoftQNetwork(envs, state_rep_q, G, ch=64, num_layers=2).to(device=device)	
-        qf1_target = InvariantSoftQNetwork(envs, state_rep_q, G, ch=64, num_layers=2).to(device=device)	
-        qf2_target = InvariantSoftQNetwork(envs, state_rep_q, G, ch=64, num_layers=2).to(device=device)	
+        qf1 = InvariantSoftQNetwork(envs, state_rep_q, G, ch=256, num_layers=2).to(device=device)
+        print(qf1)
+        print("the number of parameters")
+        print(sum(p.numel() for p in qf1.parameters()))	    
+        qf2 = InvariantSoftQNetwork(envs, state_rep_q, G, ch=256, num_layers=2).to(device=device)    
+        qf1_target = InvariantSoftQNetwork(envs, state_rep_q, G, ch=256, num_layers=2).to(device=device)    
+        qf2_target = InvariantSoftQNetwork(envs, state_rep_q, G, ch=256, num_layers=2).to(device=device)    
         qf1_target.load_state_dict(qf1.state_dict())
         qf2_target.load_state_dict(qf2.state_dict())
         q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
         actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
     else:
         qf1 = SoftQNetwork(envs).to(device)
+        print(qf1)
+        print("the number of parameters")
+        print(sum(p.numel() for p in qf1.parameters()))	  
         qf2 = SoftQNetwork(envs).to(device)
         qf1_target = SoftQNetwork(envs).to(device)
         qf2_target = SoftQNetwork(envs).to(device)
