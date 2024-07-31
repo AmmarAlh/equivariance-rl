@@ -15,5 +15,6 @@ dependencies:
     - stable-baselines3[extra]
     - wandb
     - emlp
+    - tryo
 # conda env create -f environment.yml
 # conda activate equivariance-rl
