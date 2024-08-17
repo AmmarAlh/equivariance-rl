@@ -12,7 +12,14 @@ import torch.optim as optim
 import tyro
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
+from typing import Callable
 
+import jax
+from emlp.nn import uniform_rep
+from emlp.reps import Rep, Scalar, Vector, T
+from emlp.groups import SO, D, C, O, Trivial
+import emlp.nn.pytorch as eqnn
+from emlp.nn.pytorch import EMLPBlock, Linear, torchify_fn
 
 @dataclass
 class Args:
@@ -26,13 +33,13 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "cleanRL"
+    wandb_project_name: str = "equivaraince-rl"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
-    capture_video: bool = False
+    capture_video: bool = True
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    save_model: bool = False
+    save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
     upload_model: bool = False
     """whether to upload the saved model to huggingface"""
@@ -40,9 +47,9 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
-    env_id: str = "HalfCheetah-v4"
+    env_id: str = "Reacher-v4"
     """the id of the environment"""
-    total_timesteps: int = 1000000
+    total_timesteps: int = 100000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
@@ -74,7 +81,10 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
-
+    use_emlp: bool = False
+    """if toggled, use EMLP for the policy and value networks"""
+    group: str = "SO2"
+    """the group to use (C4, C8, D4, SO2, O2, trivial)"""
     # to be filled in runtime
     batch_size: int = 0
     """the batch size (computed in runtime)"""
@@ -82,8 +92,52 @@ class Args:
     """the mini-batch size (computed in runtime)"""
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
+    
 
 
+def evaluate(
+    model_path: str,
+    make_env: Callable,
+    env_id: str,
+    eval_episodes: int,
+    run_name: str,
+    Model: torch.nn.Module,
+    device: torch.device = torch.device("cpu"),
+    capture_video: bool = True,
+    gamma: float = 0.99,
+):
+    envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, capture_video, run_name, gamma)])
+    if args.use_emlp:
+        agent = Model(envs, state_rep, action_rep, G, ch=256).to(device)
+    else:
+        agent = Model(envs).to(device)
+    agent.load_state_dict(torch.load(model_path, map_location=device))
+    agent.eval()
+
+    obs, _ = envs.reset()
+    episodic_returns = []
+    while len(episodic_returns) < eval_episodes:
+        actions, _, _, _ = agent.get_action_and_value(torch.Tensor(obs).to(device))
+        next_obs, _, _, _, infos = envs.step(actions.cpu().numpy())
+        if "final_info" in infos:
+            for info in infos["final_info"]:
+                if "episode" not in info:
+                    continue
+                print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
+                episodic_returns += [info["episode"]["r"]]
+        obs = next_obs
+
+    return episodic_returns
+class CustomObservationWrapper(gym.ObservationWrapper):
+    def __init__(self, env):
+        super(CustomObservationWrapper, self).__init__(env)
+        assert isinstance(env.observation_space, gym.spaces.Box), "This wrapper only works with Box observation spaces"
+        self.observation_space = env.observation_space
+
+    def observation(self, observation):
+        obs = observation.copy()
+        obs[1], obs[2] = obs[2], obs[1]
+        return obs
 def make_env(env_id, idx, capture_video, run_name, gamma):
     def thunk():
         if capture_video and idx == 0:
@@ -91,13 +145,12 @@ def make_env(env_id, idx, capture_video, run_name, gamma):
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
             env = gym.make(env_id)
+        env = CustomObservationWrapper(env)
         env = gym.wrappers.FlattenObservation(env)  # deal with dm_control's Dict observation space
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
         env = gym.wrappers.NormalizeObservation(env)
-        env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
         env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
         return env
 
     return thunk
@@ -108,23 +161,23 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
-
+ch = 256
 class Agent(nn.Module):
     def __init__(self, envs):
         super().__init__()
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)),
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), ch)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
+            layer_init(nn.Linear(ch, ch)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),
+            layer_init(nn.Linear(ch, 1), std=1.0),
         )
         self.actor_mean = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)),
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), ch)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
+            layer_init(nn.Linear(ch, ch)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, np.prod(envs.single_action_space.shape)), std=0.01),
+            layer_init(nn.Linear(ch, np.prod(envs.single_action_space.shape)), std=0.01),
         )
         self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.single_action_space.shape)))
 
@@ -139,7 +192,45 @@ class Agent(nn.Module):
         if action is None:
             action = probs.sample()
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
+    
 
+class EquiAgent(nn.Module):
+    def __init__(self, envs, rep_in, rep_out, group, ch=256):
+        super().__init__()
+        self.rep_in = rep_in(group)
+        self.rep_out = rep_out(group)
+        self.G = group
+  
+        middle_layers = uniform_rep(ch, group)
+
+        # Define equivariant layers using EMLPBlock
+        self.actor_mean = nn.Sequential(
+            EMLPBlock(rep_in=rep_in, rep_out=middle_layers),
+            EMLPBlock(rep_in=middle_layers, rep_out=middle_layers),
+            Linear(middle_layers, self.rep_out))
+        
+        
+        self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.single_action_space.shape)))
+        self.actor_logstdP = self.rep_out.equivariant_projector()
+        self.proj_logstd = torchify_fn(jax.jit(lambda std: self.actor_logstdP@std))
+        
+        self.critic = nn.Sequential(
+            EMLPBlock(rep_in=rep_in, rep_out=middle_layers),
+            EMLPBlock(rep_in=middle_layers, rep_out=middle_layers),
+            Linear(middle_layers, Scalar(group)))
+
+    def get_value(self, x):
+        return self.critic(x)
+
+    def get_action_and_value(self, x, action=None):
+        action_mean = self.actor_mean(x)
+        pstd =self.proj_logstd(self.actor_logstd) 
+        action_logstd = pstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+        if action is None:
+            action = probs.sample()
+        return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
@@ -178,8 +269,28 @@ if __name__ == "__main__":
         [make_env(args.env_id, i, args.capture_video, run_name, args.gamma) for i in range(args.num_envs)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
-
-    agent = Agent(envs).to(device)
+    
+    print("Parsed arguments:", args)
+    # Map the group argument to the actual group object
+    group_mapping = {
+        "C4": C(4),
+        "C8": C(8),
+        "C16": C(16),
+        "D4": D(4),
+        "SO2": SO(2),
+        "D2": D(2),
+        "Trivial": Trivial(2),
+    }
+    if args.group not in group_mapping:
+        raise ValueError(f"Unknown group: {args.group}")
+    G = group_mapping[args.group]
+    # Create the state and action representations
+    state_rep = Vector(G) + 2 * Scalar(G) + Vector(G) + 2 * Scalar(G) + Vector(G) + Scalar(G) 
+    action_rep = 2*Scalar(G)
+    if args.use_emlp:
+        agent = EquiAgent(envs, state_rep, action_rep, G, ch=256).to(device)
+    else:
+        agent = Agent(envs).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     # ALGO Logic: Storage setup
@@ -193,7 +304,7 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: start the game
     global_step = 0
     start_time = time.time()
-    next_obs, _ = envs.reset(seed=args.seed)
+    next_obs, _ = envs.reset()
     next_obs = torch.Tensor(next_obs).to(device)
     next_done = torch.zeros(args.num_envs).to(device)
 
@@ -327,7 +438,6 @@ if __name__ == "__main__":
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"model saved to {model_path}")
-        from cleanrl_utils.evals.ppo_eval import evaluate
 
         episodic_returns = evaluate(
             model_path,
@@ -335,19 +445,12 @@ if __name__ == "__main__":
             args.env_id,
             eval_episodes=10,
             run_name=f"{run_name}-eval",
-            Model=Agent,
+            Model= EquiAgent if args.use_emlp else Agent,
             device=device,
             gamma=args.gamma,
         )
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
-        if args.upload_model:
-            from cleanrl_utils.huggingface import push_to_hub
-
-            repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
-            repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
-            push_to_hub(args, episodic_returns, repo_id, "PPO", f"runs/{run_name}", f"videos/{run_name}-eval")
 
     envs.close()
     writer.close()
