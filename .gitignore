@@ -165,3 +165,4 @@ equivariant-experimentation/logs-slurm/
 equivariant-experimentation/sac/output/
 
 */*/output/*
+*/*/wandb/*

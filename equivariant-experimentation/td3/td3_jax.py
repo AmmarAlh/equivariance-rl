@@ -56,13 +56,13 @@ class Args:
     """the name of this experiment"""
     seed: int = 1
     """seed of the experiment"""
-    track: bool = False
+    track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "EquiInvertedPendulum-v4"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
-    capture_video: bool = False
+    capture_video: bool = True
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     save_model: bool = True
     """whether to save model into the `output/runs/{run_name}` folder"""
@@ -74,7 +74,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "InvertedPendulum-v4"
     """the id of the environment"""
-    total_timesteps: int = 600000
+    total_timesteps: int = 300000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
@@ -119,8 +119,10 @@ class Args:
         "/home/ammaral/Projects/equivaraince-rl/equivariant-experimentation/td3/output/models/InvertedPendulum-v4__td3_jax__1__1723896022__None/td3_jax.cleanrl_model"
     )
     """the path to the expert actor model"""
-
-
+    evaluate: bool = False
+    """whether to evaluate the model"""	
+    optimizer: str = "adam"
+    """the optimizer to use"""
 
 
 
@@ -367,6 +369,12 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     else:
         # Use a fixed learning rate
         learning_rate = args.learning_rate
+    
+    
+    if args.optimizer == "adam":
+        optim = optax.adam(learning_rate)
+    elif args.optimizer == "sgd":
+        optim = optax.sgd(learning_rate)
     # env setup
     envs = gym.vector.SyncVectorEnv(
         [
@@ -447,7 +455,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             apply_fn=actor.apply,
             params=actor.init(actor_key, obs),
             target_params=actor.init(actor_key, obs),
-            tx=optax.adam(learning_rate=learning_rate),
+            tx=optim,
         )
 
         qf = InvariantQNetwork(
@@ -457,13 +465,13 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             apply_fn=qf.apply,
             params=qf.init(qf1_key, obs, envs.action_space.sample()),
             target_params=qf.init(qf1_key, obs, envs.action_space.sample()),
-            tx=optax.adam(learning_rate=learning_rate),
+            tx=optim,
         )
         qf2_state = TrainState.create(
             apply_fn=qf.apply,
             params=qf.init(qf2_key, obs, envs.action_space.sample()),
             target_params=qf.init(qf2_key, obs, envs.action_space.sample()),
-            tx=optax.adam(learning_rate=learning_rate),
+            tx=optim,
         )
 
     else:
@@ -481,20 +489,20 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             apply_fn=actor.apply,
             params=actor.init(actor_key, obs),
             target_params=actor.init(actor_key, obs),
-            tx=optax.adam(learning_rate=learning_rate),
+            tx=optim,
         )
         qf = QNetwork(ch=args.ch)
         qf1_state = TrainState.create(
             apply_fn=qf.apply,
             params=qf.init(qf1_key, obs, envs.action_space.sample()),
             target_params=qf.init(qf1_key, obs, envs.action_space.sample()),
-            tx=optax.adam(learning_rate=learning_rate),
+            tx=optim,
         )
         qf2_state = TrainState.create(
             apply_fn=qf.apply,
             params=qf.init(qf2_key, obs, envs.action_space.sample()),
             target_params=qf.init(qf2_key, obs, envs.action_space.sample()),
-            tx=optax.adam(learning_rate=learning_rate),
+            tx=optim,
         )
     if args.use_expert_data:
         expert_actor = Actor(
@@ -580,8 +588,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 writer.add_scalar(
                     "charts/episodic_length", info["episode"]["l"], global_step
                 )
+                #  metric for sweep   
+                episodic_return = info["episode"]["r"]
                 break
-
+   
         # TRY NOT TO MODIFY: save data to replay buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
         for idx, trunc in enumerate(truncations):
@@ -670,26 +680,26 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 )
             )
         print(f"model saved to {model_path}")
-
-        episodic_returns = evaluate(
-            model_path,
-            make_env,
-            args.env_id,
-            eval_episodes=10,
-            run_name=f"{run_name}-eval",
-            video_path=output_dir,
-            Model=EquiActor if args.use_emlp else Actor,
-            exploration_noise=args.exploration_noise,
-            seed=args.seed,
-            use_emlp=args.use_emlp,
-            repin_actor=repin_actor if args.use_emlp else None,
-            repout_actor=repout_actor if args.use_emlp else None,
-            G=G if args.use_emlp else None,
-            emlp_ch=args.emlp_ch,
-            ch=args.ch,
-        )
-        for idx, episodic_return in enumerate(episodic_returns):
-            writer.add_scalar("eval/episodic_return", episodic_return, idx)
+        if args.evaluate:
+            episodic_returns_eval = evaluate(
+                model_path,
+                make_env,
+                args.env_id,
+                eval_episodes=10,
+                run_name=f"{run_name}-eval",
+                video_path=output_dir,
+                Model=EquiActor if args.use_emlp else Actor,
+                exploration_noise=args.exploration_noise,
+                seed=args.seed,
+                use_emlp=args.use_emlp,
+                repin_actor=repin_actor if args.use_emlp else None,
+                repout_actor=repout_actor if args.use_emlp else None,
+                G=G if args.use_emlp else None,
+                emlp_ch=args.emlp_ch,
+                ch=args.ch,
+            )
+            for idx, episodic_return in enumerate(episodic_returns_eval):
+                writer.add_scalar("eval/episodic_return", episodic_return, idx)
 
     time.sleep(3)  # prevent
     envs.close()
