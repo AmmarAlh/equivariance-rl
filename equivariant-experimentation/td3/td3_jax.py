@@ -115,7 +115,7 @@ class Args:
     # Early stopping
     early_stopping: bool = True
     """whether to use early stopping"""
-    patience: int = 10000
+    patience: int = 1000
     """number of steps to wait for improvement before stopping"""
     min_delta: float = 1e-3
     """minimum change in the monitored metric to qualify as an improvement"""
@@ -514,6 +514,7 @@ if __name__ == "__main__":
                 # Calculate rolling average
                 avg_return = np.mean(recent_returns)
                 writer.add_scalar("charts/moving_avg_return", avg_return, global_step)
+                writer.add_scalar("charts/steps_without_improvement", steps_without_improvement, global_step)
                 # Early Stopping Check
                 if args.early_stopping:
                     if avg_return > best_avg_return + args.min_delta:

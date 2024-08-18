@@ -10,7 +10,7 @@ hostname
 # Load the necessary modules
 source /etc/profile.d/modules.sh
 module load anaconda3/2024.02
-module load nvidia/cuda-11.0
+module load nvidia/cuda-12.4
 
 # Activate the conda environment
 source ~/.bashrc
