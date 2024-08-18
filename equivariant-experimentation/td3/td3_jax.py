@@ -58,6 +58,8 @@ class Args:
     """seed of the experiment"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
+    wandb_mode: str = "online"
+    """the mode of Weights and Biases"""
     wandb_project_name: str = "EquiInvertedPendulum-v4"
     """the wandb's project name"""
     wandb_entity: str = None
@@ -290,7 +292,7 @@ if __name__ == "__main__":
 
     if args.track:
         import wandb
-
+        os.environ['WANDB_MODE'] = args.wandb_mode
         wandb.init(
             project=args.wandb_project_name,
             dir=wandb_dir,
