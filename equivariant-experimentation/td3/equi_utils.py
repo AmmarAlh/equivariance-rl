@@ -4,8 +4,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-class AngularVelocityTorqueRep(Rep):
-    """Representation for reflecting angular velocities and torques across the x-axis."""
+class ReacherAngularActionRep(Rep):
+    """Representation for reflecting angular velocities and torques across the x-axis for Reacher environment."""
     
     def __init__(self, G):
         self.G = G  # The group to which this representation is associated
@@ -32,8 +32,8 @@ class AngularVelocityTorqueRep(Rep):
     def __call__(self,G):
         return self.__class__(G)
     
-class ReflectRep(Rep):
-    """Representation for reflecting angular velocities and torques across the x-axis."""
+class InvertedPendulumActionRep(Rep):
+    """Representation for reflection across the y-axis for the action in inverted pendulum enviroment."""
     
     def __init__(self, G):
         self.G = G  # The group to which this representation is associated

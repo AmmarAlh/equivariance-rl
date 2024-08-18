@@ -1,9 +1,9 @@
-
+project: EquiInvertedPendulum-v4
 program: td3_jax.py
 method: bayes
 metric:
   goal: maximize
-  name: charts/episodic_return
+  name: charts/total_reward
 parameters:
   batch_size:
     distribution: int_uniform
@@ -14,25 +14,14 @@ parameters:
     values:
       - 64
       - 128
-      - 256
-  emlp_ch:
-    distribution: categorical
-    values:
-      - 64
-      - 128
-      - 256
   exploration_noise:
     distribution: uniform
     max: 0.4
     min: 0.05
   learning_rate:
     distribution: uniform
-    max: 0.002
-    min: 3e-05
-  learning_starts:
-    distribution: int_uniform
-    max: 10000
-    min: 2500
+    max: 0.001
+    min: 1.0e-04
   noise_clip:
     distribution: uniform
     max: 0.8
@@ -48,10 +37,9 @@ parameters:
   tau:
     distribution: uniform
     max: 0.01
-    min: 0.
+    min: 0.001
   optimizer:
     distribution: categorical
     values:
       - adam
       - sgd
-

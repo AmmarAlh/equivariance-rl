@@ -20,7 +20,6 @@ def evaluate(
     repin_actor=None,
     repout_actor=None,
     G=None,
-    emlp_ch=256,
     ch=256,
 ):
     envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name, video_path)])
@@ -45,7 +44,7 @@ def evaluate(
             rep_in=repin_actor,
             rep_out=repout_actor,
             group=G,
-            ch=emlp_ch,
+            ch=ch,
         )
     key = jax.random.PRNGKey(seed)
     key, actor_key = jax.random.split(key, 2)

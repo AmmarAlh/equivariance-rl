@@ -24,8 +24,8 @@ from emlp.reps import Scalar, Vector
 from env_setup import make_env
 from eval import evaluate
 from equi_utils import (
-    AngularVelocityTorqueRep,
-    ReflectRep,
+    ReacherAngularActionRep,
+    InvertedPendulumActionRep,
     equivariance_err_actor,
     equivariance_err_qvalue,
 )
@@ -66,22 +66,14 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     save_model: bool = True
     """whether to save model into the `output/runs/{run_name}` folder"""
-    upload_model: bool = False
-    """whether to upload the saved model to huggingface"""
-    hf_entity: str = ""
-    """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
     env_id: str = "InvertedPendulum-v4"
     """the id of the environment"""
-    total_timesteps: int = 300000
+    total_timesteps: int = 400000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
-    use_decay_lr: bool = False  # Use decaying learning rate if True, fixed otherwise
-    decay_rate: float = 0.99  # Decay rate for the learning rate if decaying is used
-    decay_steps: int = 10000  # Number of steps over which to decay the learning rate
-
     buffer_size: int = int(1e6)
     """the replay memory buffer size"""
     gamma: float = 0.99
@@ -92,10 +84,6 @@ class Args:
     """the batch size of sample from the reply memory"""
     policy_noise: float = 0.2
     """the scale of policy noise"""
-    use_decay_policy_noise: bool = False  # Use decaying policy noise if True, fixed otherwise
-    policy_noise_decay: float = 0.9999  # Decay rate for policy noise
-    min_policy_noise: float = 0.001  # Minimum policy noise after decay
-    
     exploration_noise: float = 0.1
     """the scale of exploration noise"""
     learning_starts: int = 5e3
@@ -105,14 +93,13 @@ class Args:
     noise_clip: float = 0.4
     """noise clip parameter of the Target Policy Smoothing Regularization"""
     ch: int = 128
-    """the number of channels in the hidden layers of non equivaraint network"""
+    """the number of channels in the hidden layers of non- and equivaraint networks"""
     # EMLP specific arguments
     use_emlp: bool = True
     """whether to use EMLP for the network architecture"""
     emlp_group: str = "C2"
     """the group of the EMLP layer"""
-    emlp_ch: int = 128
-    """the number of channels in the hidden layers of the EMLP"""
+    # Expert data population of the replay buffer
     use_expert_data: bool = False
     """whether to populate the replay buffer with expert episodes or random samples"""
     expert_actor_model_path: str = (
@@ -120,11 +107,18 @@ class Args:
     )
     """the path to the expert actor model"""
     evaluate: bool = False
-    """whether to evaluate the model"""	
+    """whether to evaluate the model"""
     optimizer: str = "adam"
     """the optimizer to use"""
-
-
+    # Early stopping
+    early_stopping: bool = True
+    """whether to use early stopping"""
+    patience: int = 10000
+    """number of steps to wait for improvement before stopping"""
+    min_delta: float = 1e-3
+    """minimum change in the monitored metric to qualify as an improvement"""
+    rolling_window: int = 100
+    """number of episodes to consider for rolling average"""
 
 
 # ALGO LOGIC: initialize agent here:
@@ -213,7 +207,6 @@ class TrainState(TrainState):
     target_params: flax.core.FrozenDict
 
 
-
 @jax.jit
 def update_critic(
     actor_state: TrainState,
@@ -231,7 +224,7 @@ def update_critic(
     key, noise_key = jax.random.split(key, 2)
     clipped_noise = (
         jnp.clip(
-            (jax.random.normal(noise_key, actions.shape) * current_policy_noise),
+            (jax.random.normal(noise_key, actions.shape) * args.policy_noise),
             -args.noise_clip,
             args.noise_clip,
         )
@@ -242,27 +235,17 @@ def update_critic(
         envs.single_action_space.low,
         envs.single_action_space.high,
     )
-    qf1_next_target = qf.apply(
-        qf1_state.target_params, next_observations, next_state_actions
-    ).reshape(-1)
-    qf2_next_target = qf.apply(
-        qf2_state.target_params, next_observations, next_state_actions
-    ).reshape(-1)
+    qf1_next_target = qf.apply(qf1_state.target_params, next_observations, next_state_actions).reshape(-1)
+    qf2_next_target = qf.apply(qf2_state.target_params, next_observations, next_state_actions).reshape(-1)
     min_qf_next_target = jnp.minimum(qf1_next_target, qf2_next_target)
-    next_q_value = (
-        rewards + (1 - terminations) * args.gamma * (min_qf_next_target)
-    ).reshape(-1)
+    next_q_value = (rewards + (1 - terminations) * args.gamma * (min_qf_next_target)).reshape(-1)
 
     def mse_loss(params):
         qf_a_values = qf.apply(params, observations, actions).squeeze()
         return ((qf_a_values - next_q_value) ** 2).mean(), qf_a_values.mean()
 
-    (qf1_loss_value, qf1_a_values), grads1 = jax.value_and_grad(mse_loss, has_aux=True)(
-        qf1_state.params
-    )
-    (qf2_loss_value, qf2_a_values), grads2 = jax.value_and_grad(mse_loss, has_aux=True)(
-        qf2_state.params
-    )
+    (qf1_loss_value, qf1_a_values), grads1 = jax.value_and_grad(mse_loss, has_aux=True)(qf1_state.params)
+    (qf2_loss_value, qf2_a_values), grads2 = jax.value_and_grad(mse_loss, has_aux=True)(qf2_state.params)
     qf1_state = qf1_state.apply_gradients(grads=grads1)
     qf2_state = qf2_state.apply_gradients(grads=grads2)
 
@@ -283,28 +266,14 @@ def update_actor(
     observations: np.ndarray,
 ):
     def actor_loss(params):
-        return -qf.apply(
-            qf1_state.params, observations, actor.apply(params, observations)
-        ).mean()
+        return -qf.apply(qf1_state.params, observations, actor.apply(params, observations)).mean()
 
     actor_loss_value, grads = jax.value_and_grad(actor_loss)(actor_state.params)
     actor_state = actor_state.apply_gradients(grads=grads)
-    actor_state = actor_state.replace(
-        target_params=optax.incremental_update(
-            actor_state.params, actor_state.target_params, args.tau
-        )
-    )
+    actor_state = actor_state.replace(target_params=optax.incremental_update(actor_state.params, actor_state.target_params, args.tau))
 
-    qf1_state = qf1_state.replace(
-        target_params=optax.incremental_update(
-            qf1_state.params, qf1_state.target_params, args.tau
-        )
-    )
-    qf2_state = qf2_state.replace(
-        target_params=optax.incremental_update(
-            qf2_state.params, qf2_state.target_params, args.tau
-        )
-    )
+    qf1_state = qf1_state.replace(target_params=optax.incremental_update(qf1_state.params, qf1_state.target_params, args.tau))
+    qf2_state = qf2_state.replace(target_params=optax.incremental_update(qf2_state.params, qf2_state.target_params, args.tau))
     return actor_state, (qf1_state, qf2_state), actor_loss_value
 
     ############################ END OF UPDATE_ACTOR ############################
@@ -313,14 +282,12 @@ def update_actor(
 if __name__ == "__main__":
     import stable_baselines3 as sb3
 
-    if sb3.__version__ < "1.0":
-        raise ValueError(
-            """Ongoing migration: run the following command to install the new dependencies:
-poetry run pip install "stable_baselines3==2.0.0a1"
-"""
-        )
+    if sb3.__version__ <= "1.2.0":
+        raise ValueError("Please install stable-baselines3>=1.2.0 to run this script")
+
     args = tyro.cli(Args)
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}__{args.emlp_group if args.use_emlp else None}"
+
     if args.track:
         import wandb
 
@@ -339,42 +306,15 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     writer = SummaryWriter(f"{runs_dir}/{run_name}")
     writer.add_text(
         "hyperparameters",
-        "|param|value|\n|-|-|\n%s"
-        % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
-    group_mapping = {
-        "C2": C(2),
-        "C4": C(4),
-        "C8": C(8),
-        "D4": D(4),
-        "SO2": SO(2),
-        "Trivial": Trivial(2),
-    }
-    if args.emlp_group not in group_mapping:
-        raise ValueError(f"Unknown group: {args.emlp_group}")
+
     # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)
     np.random.seed(args.seed)
     key = jax.random.PRNGKey(args.seed)
     key, actor_key, expert_actor_key, qf1_key, qf2_key = jax.random.split(key, 5)
 
-    if args.use_decay_lr:
-        learning_rate = optax.exponential_decay(
-            init_value=args.learning_rate,
-            transition_steps=args.decay_steps,
-            decay_rate=args.decay_rate,
-            transition_begin=args.learning_starts,
-            staircase=False,
-        )
-    else:
-        # Use a fixed learning rate
-        learning_rate = args.learning_rate
-    
-    
-    if args.optimizer == "adam":
-        optim = optax.adam(learning_rate)
-    elif args.optimizer == "sgd":
-        optim = optax.sgd(learning_rate)
     # env setup
     envs = gym.vector.SyncVectorEnv(
         [
@@ -388,9 +328,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             )
         ]
     )
-    assert isinstance(
-        envs.single_action_space, gym.spaces.Box
-    ), "only continuous action space is supported"
+    assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
     max_action = float(envs.single_action_space.high[0])
     envs.single_observation_space.dtype = np.float64
@@ -404,52 +342,50 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
+    # Init Optimizer
+    if args.optimizer == "adam":
+        optim = optax.adam(args.learning_rate)
+    elif args.optimizer == "sgd":
+        optim = optax.sgd(args.learning_rate)
 
     if args.use_emlp:
+        group_mapping = {
+            "C2": C(2),
+            "C4": C(4),
+            "C8": C(8),
+            "D4": D(4),
+            "SO2": SO(2),
+            "Trivial": Trivial(2),
+        }
+        if args.emlp_group not in group_mapping:
+            raise ValueError(f"Unknown group: {args.emlp_group}")
         G = group_mapping[args.emlp_group]
 
         # Create the state and action representations
         if args.env_id == "Reacher-v4":
 
-            repin_actor = (
-                Vector(G)
-                + Vector(G)
-                + Vector(G)
-                + AngularVelocityTorqueRep(G)
-                + 2 * Scalar(G)
-                + Scalar(G)
-            )
-            repout_actor = AngularVelocityTorqueRep(G)
+            repin_actor = Vector(G) + Vector(G) + Vector(G) + ReacherAngularActionRep(G) + 2 * Scalar(G) + Scalar(G)
+            repout_actor = ReacherAngularActionRep(G)
 
-            repin_q = (
-                Vector(G)
-                + Vector(G)
-                + Vector(G)
-                + AngularVelocityTorqueRep(G)
-                + 2 * Scalar(G)
-                + Scalar(G)
-                + repout_actor
-            )
+            repin_q = Vector(G) + Vector(G) + Vector(G) + ReacherAngularActionRep(G) + 2 * Scalar(G) + Scalar(G) + repout_actor
             repout_q = Scalar(G)
         elif args.env_id == "InvertedPendulum-v4":
+            if G != C(2):
+                raise ValueError("InvertedPendulum-v4 only supports C2 group")
             repin_actor = Vector(G) + Vector(G)
-            repout_actor = ReflectRep(G)
+            repout_actor = InvertedPendulumActionRep(G)
 
             repin_q = Vector(G) + Vector(G) + repout_actor
             repout_q = Scalar(G)
 
         actor = EquiActor(
             action_dim=np.prod(envs.single_action_space.shape),
-            action_scale=jnp.array(
-                (envs.action_space.high - envs.action_space.low) / 2.0
-            ),
-            action_bias=jnp.array(
-                (envs.action_space.high + envs.action_space.low) / 2.0
-            ),
+            action_scale=jnp.array((envs.action_space.high - envs.action_space.low) / 2.0),
+            action_bias=jnp.array((envs.action_space.high + envs.action_space.low) / 2.0),
             rep_in=repin_actor,
             rep_out=repout_actor,
             group=G,
-            ch=args.emlp_ch,
+            ch=args.ch,
         )
         actor_state = TrainState.create(
             apply_fn=actor.apply,
@@ -458,9 +394,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             tx=optim,
         )
 
-        qf = InvariantQNetwork(
-            rep_in=repin_q, rep_out=repout_q, group=G, ch=args.emlp_ch
-        )
+        qf = InvariantQNetwork(rep_in=repin_q, rep_out=repout_q, group=G, ch=args.ch)
         qf1_state = TrainState.create(
             apply_fn=qf.apply,
             params=qf.init(qf1_key, obs, envs.action_space.sample()),
@@ -477,12 +411,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     else:
         actor = Actor(
             action_dim=np.prod(envs.single_action_space.shape),
-            action_scale=jnp.array(
-                (envs.action_space.high - envs.action_space.low) / 2.0
-            ),
-            action_bias=jnp.array(
-                (envs.action_space.high + envs.action_space.low) / 2.0
-            ),
+            action_scale=jnp.array((envs.action_space.high - envs.action_space.low) / 2.0),
+            action_bias=jnp.array((envs.action_space.high + envs.action_space.low) / 2.0),
             ch=args.ch,
         )
         actor_state = TrainState.create(
@@ -507,21 +437,15 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     if args.use_expert_data:
         expert_actor = Actor(
             action_dim=np.prod(envs.single_action_space.shape),
-            action_scale=jnp.array(
-                (envs.action_space.high - envs.action_space.low) / 2.0
-            ),
-            action_bias=jnp.array(
-                (envs.action_space.high + envs.action_space.low) / 2.0
-            ),
+            action_scale=jnp.array((envs.action_space.high - envs.action_space.low) / 2.0),
+            action_bias=jnp.array((envs.action_space.high + envs.action_space.low) / 2.0),
             ch=args.ch,
         )
 
         expert_actor_params = expert_actor.init(actor_key, obs)
 
         with open(args.expert_actor_model_path, "rb") as f:  # type: ignore
-            (expert_actor_params, _, _) = flax.serialization.from_bytes(
-                (expert_actor_params, None, None), f.read()
-            )
+            (expert_actor_params, _, _) = flax.serialization.from_bytes((expert_actor_params, None, None), f.read())
 
         expert_actor.apply = jax.jit(expert_actor.apply)
 
@@ -529,16 +453,12 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     qf.apply = jax.jit(qf.apply)
 
     start_time = time.time()
+    best_avg_return = -np.inf
+    steps_without_improvement = 0
+    recent_returns = []
+    total_reward = 0.0
     for global_step in range(args.total_timesteps):
         # ALGO LOGIC: put action logic here
-        if args.use_decay_policy_noise:
-            current_policy_noise = max(
-                args.policy_noise
-                * (args.policy_noise_decay ** (abs(global_step - args.learning_starts))),
-                args.min_policy_noise,
-            )
-        else:
-            current_policy_noise = args.policy_noise
         if args.use_expert_data and global_step < args.learning_starts:
             actions = expert_actor.apply(expert_actor_params, obs)
             actions = np.array(
@@ -554,9 +474,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 ]
             )
         elif not args.use_expert_data and global_step < args.learning_starts:
-            actions = np.array(
-                [envs.single_action_space.sample() for _ in range(envs.num_envs)]
-            )
+            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
 
         else:
             actions = actor.apply(actor_state.params, obs)
@@ -577,21 +495,35 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
+
         if "final_info" in infos:
             for info in infos["final_info"]:
-                print(
-                    f"global_step={global_step}, episodic_return={info['episode']['r']}"
-                )
-                writer.add_scalar(
-                    "charts/episodic_return", info["episode"]["r"], global_step
-                )
-                writer.add_scalar(
-                    "charts/episodic_length", info["episode"]["l"], global_step
-                )
-                #  metric for sweep   
+                print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
+                writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
+                writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+
                 episodic_return = info["episode"]["r"]
+                recent_returns.append(episodic_return)
+                total_reward += episodic_return
+                writer.add_scalar("charts/total_reward", total_reward, global_step)
+                if len(recent_returns) > args.rolling_window:
+                    recent_returns.pop(0)
+
+                # Calculate rolling average
+                avg_return = np.mean(recent_returns)
+                writer.add_scalar("charts/moving_avg_return", avg_return, global_step)
+                # Early Stopping Check
+                if args.early_stopping:
+                    if avg_return > best_avg_return + args.min_delta:
+                        best_avg_return = avg_return
+                        steps_without_improvement = 0
+                    else:
+                        steps_without_improvement += 1
+                    if steps_without_improvement >= args.patience:
+                        print(f"Early stopping triggered at step {global_step}")
                 break
-   
+        if steps_without_improvement > args.patience:
+            break
         # TRY NOT TO MODIFY: save data to replay buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
         for idx, trunc in enumerate(truncations):
@@ -636,34 +568,16 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 writer.add_scalar("losses/qf2_loss", qf2_loss_value.item(), global_step)
                 writer.add_scalar("losses/qf1_values", qf1_a_values.item(), global_step)
                 writer.add_scalar("losses/qf2_values", qf2_a_values.item(), global_step)
-                writer.add_scalar(
-                    "losses/actor_loss", actor_loss_value.item(), global_step
-                )
-                writer.add_scalar(
-                    "charts/policy_noise", current_policy_noise, global_step
-                )
-                writer.add_scalar("charts/learning_rate",  np.array(learning_rate(global_step)) if args.use_decay_lr else args.learning_rate, global_step)
+                writer.add_scalar("losses/actor_loss", actor_loss_value.item(), global_step)
 
                 print("SPS:", int(global_step / (time.time() - start_time)))
-                writer.add_scalar(
-                    "charts/SPS",
-                    int(global_step / (time.time() - start_time)),
-                    global_step,
-                )
+                writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
                 # Calculate and log the equivariance error
                 if args.use_emlp:
-                    actor_equiv_error = equivariance_err_actor(
-                        actor, actor_state.params, obs, repin_actor, repout_actor, G
-                    )
-                    qf_equiv_error = equivariance_err_qvalue(
-                        qf, qf1_state.params, obs, actions, repin_q, repout_q, G
-                    )
-                    writer.add_scalar(
-                        "equivariance/actor_error", actor_equiv_error, global_step
-                    )
-                    writer.add_scalar(
-                        "equivariance/qf_error", qf_equiv_error, global_step
-                    )
+                    actor_equiv_error = equivariance_err_actor(actor, actor_state.params, obs, repin_actor, repout_actor, G)
+                    qf_equiv_error = equivariance_err_qvalue(qf, qf1_state.params, obs, actions, repin_q, repout_q, G)
+                    writer.add_scalar("equivariance/actor_error", actor_equiv_error, global_step)
+                    writer.add_scalar("equivariance/qf_error", qf_equiv_error, global_step)
 
     if args.save_model:
 
@@ -695,7 +609,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 repin_actor=repin_actor if args.use_emlp else None,
                 repout_actor=repout_actor if args.use_emlp else None,
                 G=G if args.use_emlp else None,
-                emlp_ch=args.emlp_ch,
                 ch=args.ch,
             )
             for idx, episodic_return in enumerate(episodic_returns_eval):
