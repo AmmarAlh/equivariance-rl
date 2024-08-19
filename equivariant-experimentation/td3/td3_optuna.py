@@ -30,6 +30,7 @@ def objective(trial):
         "--wandb_project_name", "InvertedPendulum-v4",
         "--wandb_mode", "offline",
         "--use_emlp",
+        "-learning_starts", "1",
     ]
 
     # Run the script

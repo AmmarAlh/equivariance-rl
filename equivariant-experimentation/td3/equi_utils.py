@@ -28,7 +28,7 @@ class ReacherAngularActionRep(Rep):
         return self.G.d
 
     def __str__(self):
-        return "AngularVelocityTorqueRep"
+        return "ReacherAngularActionRep"
     def __call__(self,G):
         return self.__class__(G)
     
@@ -56,7 +56,7 @@ class InvertedPendulumActionRep(Rep):
         return 1
 
     def __str__(self):
-        return "AngularVelocityTorqueRep"
+        return "InvertedPendulumActionRep"
     def __call__(self,G):
         return self.__class__(G)
 

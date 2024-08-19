@@ -116,7 +116,7 @@ class Args:
     # Early stopping
     early_stopping: bool = True
     """whether to use early stopping"""
-    patience: int = 1500
+    patience: int = 2000
     """number of steps to wait for improvement before stopping"""
     min_delta: float = 1e-3
     """minimum change in the monitored metric to qualify as an improvement"""

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=td3-equi                  # Job name
+#SBATCH --job-name=td3-equi-no-ls                  # Job name
 #SBATCH --partition=main                      # Partition
 #SBATCH --output=logs-slurm/td3/slurm_%j.out  # SLURM and script STDOUT
 #SBATCH --error=logs-slurm/td3/slurm_%j.err   # SLURM and script STDERR
