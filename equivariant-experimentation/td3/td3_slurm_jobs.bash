@@ -3,8 +3,8 @@
 #SBATCH --partition=main                      # Partition
 #SBATCH --output=logs-slurm/td3/slurm_%j.out  # SLURM and script STDOUT
 #SBATCH --error=logs-slurm/td3/slurm_%j.err   # SLURM and script STDERR
-#SBATCH --gres=gpu:3                          # Request 2 GPUs
-#SBATCH --ntasks=3                            # Run 2 tasks in parallel
+#SBATCH --gres=gpu:1                          # Request 1 GPU
+#SBATCH --ntasks=1                            # Run 1 task at a time
 #SBATCH --cpus-per-task=4                     # Allocate CPUs per task (adjust based on your needs)
 
 # Show actual node in output file, useful for diagnostics
@@ -20,29 +20,26 @@ source ~/.bashrc
 conda init bash
 conda activate equivariance-rl
 
-# Define the seeds for two parallel runs
-seeds=(2 9)
+# Define the seeds for sequential runs
+seeds=(1 2 3 4 5 6 7)
 
-# Run the commands in parallel, each using one GPU
-for i in {0..1}
+# Run the command sequentially for each seed
+for seed_value in "${seeds[@]}"
 do
-    seed_value=${seeds[$i]}
     echo "Running with seed: $seed_value"  # Debugging statement to confirm the seed value
     
-    CUDA_VISIBLE_DEVICES=$i /home/s2657708/.conda/envs/equivariance-rl/bin/python td3/td3_jax.py \
+    /home/s2657708/.conda/envs/equivariance-rl/bin/python td3/td3_jax.py \
     --batch_size=128 \
     --ch=128 \
     --exploration_noise=0.1616845205660069 \
     --learning_rate=0.0006050915827478229 \
-    --learning_starts=2648 \
+    --learning_starts=2648  \
     --noise_clip=0.19123162935732332 \
     --optimizer=sgd \
     --policy_frequency=3 \
     --policy_noise=0.7895366960729397 \
     --tau=0.008840053734178458 \
     --wandb-mode offline \
-    --seed=$(($seed_value)) &  # Ensure seed is treated as an integer
+    --seed=$seed_value
+    echo "Completed run with seed: $seed_value"  # Indicate completion of the seed
 done
-
-# Wait for all background jobs to finish
-wait

@@ -3,6 +3,7 @@ import os
 import random
 import time
 from dataclasses import dataclass
+import json # for optuna finetunning 
 
 import flax
 import flax.linen as nn
@@ -54,7 +55,7 @@ os.makedirs(models_dir, exist_ok=True)
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 1
+    seed: int = 4
     """seed of the experiment"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
@@ -72,7 +73,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "InvertedPendulum-v4"
     """the id of the environment"""
-    total_timesteps: int = 400000
+    total_timesteps: int = 500000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
@@ -97,7 +98,7 @@ class Args:
     ch: int = 128
     """the number of channels in the hidden layers of non- and equivaraint networks"""
     # EMLP specific arguments
-    use_emlp: bool = True
+    use_emlp: bool = False
     """whether to use EMLP for the network architecture"""
     emlp_group: str = "C2"
     """the group of the EMLP layer"""
@@ -115,7 +116,7 @@ class Args:
     # Early stopping
     early_stopping: bool = True
     """whether to use early stopping"""
-    patience: int = 1000
+    patience: int = 1500
     """number of steps to wait for improvement before stopping"""
     min_delta: float = 1e-3
     """minimum change in the monitored metric to qualify as an improvement"""
@@ -459,6 +460,8 @@ if __name__ == "__main__":
     steps_without_improvement = 0
     recent_returns = []
     total_reward = 0.0
+    total_episodes = 0
+    cumulative_avg_return = 0.0
     for global_step in range(args.total_timesteps):
         # ALGO LOGIC: put action logic here
         if args.use_expert_data and global_step < args.learning_starts:
@@ -500,21 +503,27 @@ if __name__ == "__main__":
 
         if "final_info" in infos:
             for info in infos["final_info"]:
-                print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
-
                 episodic_return = info["episode"]["r"]
-                recent_returns.append(episodic_return)
+                print(f"global_step={global_step}, episodic_return={episodic_return}")
+                writer.add_scalar("charts/episodic_return", episodic_return, global_step)
+                episodic_length = info["episode"]["l"]
+                writer.add_scalar("charts/epsidic_length", episodic_length, global_step)
+ 
+                # Calculate total reward and total episodes
                 total_reward += episodic_return
-                writer.add_scalar("charts/total_reward", total_reward, global_step)
+                total_episodes += 1
+                # Calculate cumulative average return
+                cumulative_avg_return = (total_reward / total_episodes)
+                writer.add_scalar("charts/cumulative_avg_return", cumulative_avg_return, global_step)
+                
+                # Calculate rolling average of episodic returns
+                recent_returns.append(episodic_return)
                 if len(recent_returns) > args.rolling_window:
                     recent_returns.pop(0)
-
-                # Calculate rolling average
                 avg_return = np.mean(recent_returns)
                 writer.add_scalar("charts/moving_avg_return", avg_return, global_step)
                 writer.add_scalar("charts/steps_without_improvement", steps_without_improvement, global_step)
+                
                 # Early Stopping Check
                 if args.early_stopping:
                     if avg_return > best_avg_return + args.min_delta:
@@ -522,10 +531,9 @@ if __name__ == "__main__":
                         steps_without_improvement = 0
                     else:
                         steps_without_improvement += 1
-                    if steps_without_improvement >= args.patience:
-                        print(f"Early stopping triggered at step {global_step}")
                 break
         if steps_without_improvement > args.patience:
+            print(f"Early stopping triggered at step {global_step}")
             break
         # TRY NOT TO MODIFY: save data to replay buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
@@ -616,7 +624,16 @@ if __name__ == "__main__":
             )
             for idx, episodic_return in enumerate(episodic_returns_eval):
                 writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
+    
+    cumulative_avg_return = float(cumulative_avg_return[0])
+    result = {"cumulative_avg_return": cumulative_avg_return}
+    print(f"Type of cumulative_avg_return: {type(cumulative_avg_return)}")
+    print(f"Value of cumulative_avg_return: {cumulative_avg_return}")
+    # Save the results to a JSON file for optuna finetunning
+    output_file = f"cumulative_avg_return.json"
+    with open(output_file, "w") as f:
+        json.dump(result, f)
+        
     time.sleep(3)  # prevent
     envs.close()
     writer.close()

@@ -167,3 +167,5 @@ equivariant-experimentation/sac/output/
 */*/output/*
 */*/wandb/*
 */wandb/*
+equivariant-experimentation/cumulative_avg_return.json
+equivariant-experimentation/MUJOCO_LOG.TXT
