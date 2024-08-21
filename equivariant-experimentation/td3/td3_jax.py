@@ -23,7 +23,7 @@ from emlp.nn.flax import EMLPBlock, Linear, Sequential, uniform_rep
 from emlp.reps import Scalar, Vector
 
 from env_setup import make_env
-from eval import evaluate
+from eval import evaluate_jax
 from equi_utils import (
     ReacherAngularActionRep,
     InvertedPendulumActionRep,
@@ -34,21 +34,6 @@ from equi_utils import (
 
 os.environ["MUJOCO_GL"] = "egl"
 
-# Determine the base directory where the script is located
-base_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Define the parent output directory
-output_dir = os.path.join(base_dir, "output")
-
-# Paths for wandb, runs, and models directories inside the output directory
-wandb_dir = os.path.join(output_dir, "")
-runs_dir = os.path.join(output_dir, "runs")
-models_dir = os.path.join(output_dir, "models")
-
-# Create directories if they do not exist
-os.makedirs(wandb_dir, exist_ok=True)
-os.makedirs(runs_dir, exist_ok=True)
-os.makedirs(models_dir, exist_ok=True)
 
 
 @dataclass
@@ -290,7 +275,23 @@ if __name__ == "__main__":
 
     args = tyro.cli(Args)
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}__{args.emlp_group if args.use_emlp else None}"
+        
+    # Determine the base directory where the script is located
+    base_dir = os.path.dirname(os.path.abspath(__file__))
 
+    # Define the parent output directory
+    output_dir = os.path.join(base_dir, "output")
+
+    # Paths for wandb, runs, and models directories inside the output directory
+    wandb_dir = os.path.join(output_dir, "")
+    runs_dir = os.path.join(output_dir, "runs")
+    models_dir = os.path.join(output_dir, "models")
+
+    # Create directories if they do not exist
+    os.makedirs(wandb_dir, exist_ok=True)
+    os.makedirs(runs_dir, exist_ok=True)
+    os.makedirs(models_dir, exist_ok=True)
+    
     if args.track:
         import wandb
         os.environ['WANDB_MODE'] = args.wandb_mode
@@ -335,6 +336,7 @@ if __name__ == "__main__":
 
     max_action = float(envs.single_action_space.high[0])
     envs.single_observation_space.dtype = np.float64
+    # buffer setup
     rb = ReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
@@ -378,7 +380,7 @@ if __name__ == "__main__":
             repin_actor = Vector(G) + Vector(G)
             repout_actor = InvertedPendulumActionRep(G)
 
-            repin_q = Vector(G) + Vector(G) + repout_actor
+            repin_q = Vector(G) + Vector(G) + InvertedPendulumActionRep(G)
             repout_q = Scalar(G)
 
         actor = EquiActor(
@@ -586,9 +588,13 @@ if __name__ == "__main__":
                 # Calculate and log the equivariance error
                 if args.use_emlp:
                     actor_equiv_error = equivariance_err_actor(actor, actor_state.params, obs, repin_actor, repout_actor, G)
-                    qf_equiv_error = equivariance_err_qvalue(qf, qf1_state.params, obs, actions, repin_q, repout_q, G)
+                    
+                    qf1_equiv_error = equivariance_err_qvalue(qf, qf1_state.params, obs, actions, repin_q, repout_q, G)
+                    qf2_equiv_error = equivariance_err_qvalue(qf, qf2_state.params, obs, actions, repin_q, repout_q, G)
+    
                     writer.add_scalar("equivariance/actor_error", actor_equiv_error, global_step)
-                    writer.add_scalar("equivariance/qf_error", qf_equiv_error, global_step)
+                    writer.add_scalar("equivariance/qf1_error", qf1_equiv_error, global_step)
+                    writer.add_scalar("equivariance/qf2_error", qf2_equiv_error, global_step)
 
     if args.save_model:
 
@@ -606,7 +612,7 @@ if __name__ == "__main__":
             )
         print(f"model saved to {model_path}")
         if args.evaluate:
-            episodic_returns_eval = evaluate(
+            episodic_returns_eval = evaluate_jax(
                 model_path,
                 make_env,
                 args.env_id,
