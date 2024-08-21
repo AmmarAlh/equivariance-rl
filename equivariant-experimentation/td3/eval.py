@@ -5,7 +5,7 @@ import flax.linen as nn
 import jax
 import numpy as np
 
-def evaluate(
+def evaluate_jax(
     model_path: str,
     make_env: Callable,
     env_id: str,

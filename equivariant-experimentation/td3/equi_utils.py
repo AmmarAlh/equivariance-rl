@@ -37,6 +37,7 @@ class InvertedPendulumActionRep(Rep):
     
     def __init__(self, G):
         self.G = G  # The group to which this representation is associated
+        self.is_permutation = True
         super().__init__()
 
     def rho(self, M):
@@ -47,7 +48,7 @@ class InvertedPendulumActionRep(Rep):
         if jnp.allclose(M, jnp.eye(2)):
             return jnp.eye(1)  # Identity matrix, no change
         elif jnp.allclose(M, jnp.array([[-1, 0], [0, -1]])):
-            return -1*jnp.eye(1)   # Sign flip for angular velocities and torques
+            return -1*jnp.eye(1)   # Sign flip for action
         else:
             raise ValueError("Unrecognized group element")
 
@@ -70,10 +71,9 @@ def rel_err(a, b):
 
 
 def equivariance_err_actor(model, params, state, rin, rout, G):
-    gs = G.samples(state.shape[0])
+    gs = G.samples(5)
     rho_gin = jnp.stack([jnp.array(rin.rho_dense(g)) for g in gs])
     rho_gout = jnp.stack([jnp.array(rout.rho_dense(g)) for g in gs])
-
     y1 = model.apply(params, (rho_gin @ state[..., None]).squeeze(-1))
     y2 = model.apply(params, state)
     y2 = (rho_gout @ y2[..., None]).squeeze(-1)
@@ -81,16 +81,12 @@ def equivariance_err_actor(model, params, state, rin, rout, G):
 
 
 def equivariance_err_qvalue(model, params, state, actions, rin, rout, G):
-    gs = G.samples(state.shape[0])
+    gs = G.samples(5)
     rho_gin = jnp.stack([jnp.array(rin.rho_dense(g)) for g in gs])
     rho_gout = jnp.stack([jnp.array(rout.rho_dense(g)) for g in gs])
-
     x = jnp.concatenate([state, actions], axis=1)
-    x = x @ rho_gin
-
-    y1 = model.apply(
-        params, x[0, :, : state.shape[-1]], x[0, :, -actions.shape[-1] :]
-    ).squeeze(-1)
+    x = (rho_gin @ x[..., None]).squeeze(-1)
+    y1 = model.apply(params, x[:, :state.shape[-1]], x[:,-actions.shape[-1]  :])
     y2 = model.apply(params, state, actions)
     y2 = (rho_gout @ y2[..., None]).squeeze(-1)
     return rel_err(y1, y2)
