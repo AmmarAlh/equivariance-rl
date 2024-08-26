@@ -26,6 +26,9 @@ from env_setup import make_env
 from eval import evaluate_pytorch
 
 
+os.environ["MUJOCO_GL"] = "egl"
+
+
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
