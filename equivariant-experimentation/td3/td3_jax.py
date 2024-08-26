@@ -280,7 +280,7 @@ if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Define the parent output directory
-    output_dir = os.path.join(base_dir, "output")
+    output_dir = os.path.join(base_dir, args.output_dir)
 
     # Paths for wandb, runs, and models directories inside the output directory
     wandb_dir = os.path.join(output_dir, "")
@@ -636,8 +636,8 @@ if __name__ == "__main__":
     print(f"Type of cumulative_avg_return: {type(cumulative_avg_return)}")
     print(f"Value of cumulative_avg_return: {cumulative_avg_return}")
     # Save the results to a JSON file for optuna finetunning
-    output_file = f"cumulative_avg_return.json"
-    with open(output_file, "w") as f:
+    output_file = f"cumulative_avg_return_2.json"
+    with open(output_file, "w+") as f:
         json.dump(result, f)
         
     time.sleep(3)  # prevent
