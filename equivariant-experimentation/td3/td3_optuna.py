@@ -5,17 +5,15 @@ import json
 
 def objective(trial):
     # Sample hyperparameters using Optuna
-    batch_size = trial.suggest_int('batch_size', 128, 512)
+    batch_size = trial.suggest_categorical('batch_size', [64, 128, 256])
     ch = trial.suggest_categorical('ch', [64, 128])
     exploration_noise = trial.suggest_float('exploration_noise', 0.05, 0.4)
-    learning_rate = trial.suggest_float('learning_rate', 1e-4, 0.001)
-    noise_clip = trial.suggest_float('noise_clip', 0.1, 0.8)
-    policy_frequency = trial.suggest_int('policy_frequency', 1, 4)
+    learning_rate = trial.suggest_float('learning_rate', 1e-3, 1e-4)
+    noise_clip = trial.suggest_float('noise_clip', 0.1, 0.5)
+    policy_frequency = trial.suggest_int('policy_frequency', 2, 3)
     policy_noise = trial.suggest_float('policy_noise', 0.025, 0.8)
-    tau = trial.suggest_float('tau', 0.001, 0.01)
-    optimizer = trial.suggest_categorical('optimizer', ['adam', 'sgd'])
-
-    # Construct the command to run your script with the sampled hyperparameters
+    tau = trial.suggest_float('tau', 0.001, 0.008)
+    optimizer = trial.suggest_categorical('optimizer', ['adam', 'sgd'])    # Construct the command to run your script with the sampled hyperparameters
     command = [
         "/home/s2657708/.conda/envs/equivariance-rl/bin/python", "td3/td3_jax.py",
         "--batch_size", str(batch_size),
@@ -30,7 +28,7 @@ def objective(trial):
         "--wandb_project_name", "InvertedPendulum-v4",
         "--wandb_mode", "offline",
         "--use_emlp",
-        "--learning_starts", "1",
+        "--output_dir", "output_emlp_seed1",
     ]
 
     # Run the script

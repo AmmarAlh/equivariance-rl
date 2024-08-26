@@ -166,6 +166,7 @@ equivariant-experimentation/logs-slurm/
 */*/output/*
 */*/wandb/*
 */*/*_output/
+*/*/output_*/
 */wandb/*
-equivariant-experimentation/cumulative_avg_return.json
+equivariant-experimentation/*.json
 equivariant-experimentation/MUJOCO_LOG.TXT
