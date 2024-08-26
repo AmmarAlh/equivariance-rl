@@ -1,9 +1,15 @@
-from typing import Callable
+
 import gymnasium as gym
+from typing import Callable
+import numpy as np
+
+## jax
 import flax
 import flax.linen as nn
 import jax
-import numpy as np
+## pytorch
+import torch
+
 
 def evaluate_jax(
     model_path: str,
@@ -81,6 +87,53 @@ def evaluate_jax(
                 print(
                     f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}"
                 )
+                episodic_returns += [info["episode"]["r"]]
+        obs = next_obs
+
+    return episodic_returns
+
+def evaluate_pytorch(
+    model_path: str,
+    make_env: Callable,
+    env_id: str,
+    eval_episodes: int,
+    run_name: str,
+    Model: nn.Module,
+    repr_in: None,
+    repr_out: None,
+    ch: int,
+    basis: str,
+    device: torch.device = torch.device("cpu"),
+    capture_video: bool = True,
+    exploration_noise: float = 0.1,
+    seed=1,
+    video_path = "output",
+):
+    envs = gym.vector.SyncVectorEnv([make_env(env_id, seed, 0, capture_video, run_name, video_path)])
+    
+    if repr_in is not None:
+        actor = Model(envs, repr_in=repr_in, repr_out =repr_out, hidden_size=ch, basis=basis).to(device)
+    else:
+        actor = Model(envs).to(device)
+    actor_params = torch.load(model_path, map_location=device)
+    actor.load_state_dict(actor_params, strict=False)
+    actor.eval()
+
+
+    obs, _ = envs.reset()
+    episodic_returns = []
+    while len(episodic_returns) < eval_episodes:
+        with torch.no_grad():
+            actions = actor(torch.Tensor(obs).to(device))
+            actions += torch.normal(0, actor.action_scale * exploration_noise)
+            actions = actions.cpu().numpy().clip(envs.single_action_space.low, envs.single_action_space.high)
+
+        next_obs, _, _, _, infos = envs.step(actions)
+        if "final_info" in infos:
+            for info in infos["final_info"]:
+                if "episode" not in info:
+                    continue
+                print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
                 episodic_returns += [info["episode"]["r"]]
         obs = next_obs
 

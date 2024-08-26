@@ -12,7 +12,7 @@ class ReacherObservationWrapper(gym.ObservationWrapper):
         return obs
 
 
-def make_env(env_id, seed, idx, capture_video,run_name, video_path = "output/videos/"):
+def make_env(env_id, seed, idx, capture_video,run_name, video_path = "output"):
     def thunk():
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array")
@@ -22,7 +22,6 @@ def make_env(env_id, seed, idx, capture_video,run_name, video_path = "output/vid
         if env_id == "Reacher-v4":
             env = ReacherObservationWrapper(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.ClipAction(env)
         env.action_space.seed(seed)
         return env
 
