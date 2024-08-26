@@ -1,0 +1,3 @@
+[submodule "external/symmetrizer"]
+	path = external/symmetrizer
+	url = https://github.com/ElisevanderPol/symmetrizer.git
