@@ -253,6 +253,30 @@ if __name__ == "__main__":
     envs = gym.vector.SyncVectorEnv([make_env(args.env_id, args.seed + i, i, args.capture_video, run_name, video_path=output_dir) for i in range(args.n_envs)])
 
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
+    
+    ## actor input and output representations
+    representations = [torch.FloatTensor(np.eye(4)), torch.FloatTensor(-1 * np.eye(4))]
+    in_group = GroupRepresentations(representations, "StateGroupRepr")
+    representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(-1 * np.eye(1))]
+    out_group = GroupRepresentations(representations, "ActionGroupRepr")
+
+    repr_in = MatrixRepresentation(in_group, out_group)
+    repr_out = MatrixRepresentation(out_group, out_group)
+    actor = EquiActor(envs, repr_in, repr_out, args.ch, args.emlp_basis).to(device)
+    target_actor = EquiActor(envs, repr_in, repr_out, args.ch, basis = args.emlp_basis).to(device)
+    ## qf input and output representations
+    representations = [torch.FloatTensor(np.eye(5)), torch.FloatTensor(-1 * np.eye(5))]
+    in_group = GroupRepresentations(representations, "StateGroupRepr")
+    representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(-1 * np.eye(1))]
+    out_group = GroupRepresentations(representations, "ActionGroupRepr")
+    repr_in_q = MatrixRepresentation(in_group, out_group)
+    representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(np.eye(1))]
+    out_group_q = GroupRepresentations(representations, "InvariantGroupRepr")
+    repr_out_q = MatrixRepresentation(out_group_q, out_group_q)
+    
+    
+    
+    
     if not args.use_emlp:
         actor = Actor(envs).to(device)
         qf1 = QNetwork(envs).to(device)
@@ -261,26 +285,6 @@ if __name__ == "__main__":
         qf2_target = QNetwork(envs).to(device)
         target_actor = Actor(envs).to(device)
     else:
-        ## actor input and output representations
-        representations = [torch.FloatTensor(np.eye(4)), torch.FloatTensor(-1 * np.eye(4))]
-        in_group = GroupRepresentations(representations, "StateGroupRepr")
-        representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(-1 * np.eye(1))]
-        out_group = GroupRepresentations(representations, "ActionGroupRepr")
-
-        repr_in = MatrixRepresentation(in_group, out_group)
-        repr_out = MatrixRepresentation(out_group, out_group)
-        actor = EquiActor(envs, repr_in, repr_out, args.ch, args.emlp_basis).to(device)
-        target_actor = EquiActor(envs, repr_in, repr_out, args.ch, basis = args.emlp_basis).to(device)
-        ## qf input and output representations
-        representations = [torch.FloatTensor(np.eye(5)), torch.FloatTensor(-1 * np.eye(5))]
-        in_group = GroupRepresentations(representations, "StateGroupRepr")
-        representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(-1 * np.eye(1))]
-        out_group = GroupRepresentations(representations, "ActionGroupRepr")
-        repr_in_q = MatrixRepresentation(in_group, out_group)
-        representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(np.eye(1))]
-        out_group_q = GroupRepresentations(representations, "InvariantGroupRepr")
-        repr_out_q = MatrixRepresentation(out_group_q, out_group_q)
-
         qf1 = InvariantQNetwork(envs, repr_in_q, repr_out_q, args.ch, basis = args.emlp_basis).to(device)
         qf2 = InvariantQNetwork(envs, repr_in_q, repr_out_q, args.ch, basis = args.emlp_basis).to(device)
         qf1_target = InvariantQNetwork(envs, repr_in_q, repr_out_q, args.ch, basis = args.emlp_basis).to(device)
@@ -398,13 +402,12 @@ if __name__ == "__main__":
                 print("SPS:", int(global_step / (time.time() - start_time)))
                 writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
                 
-                if args.use_emlp:
-                    err_a = actor_equivariance_mae(actor, data.observations, repr_in, repr_out)
-                    err_q1 = q_equivariance_mae(qf1, data.observations, data.actions, repr_in_q)
-                    err_q2 = q_equivariance_mae(qf2, data.observations, data.actions, repr_in_q)
-                    writer.add_scalar("equivariance/actor_equivariance_mae", err_a, global_step)
-                    writer.add_scalar("equivariance/qf1_equivariance_mae", err_q1, global_step)
-                    writer.add_scalar("equivariance/qf2_equivariance_mae", err_q2, global_step)
+                err_a = actor_equivariance_mae(actor, data.observations, repr_in, repr_out)
+                err_q1 = q_equivariance_mae(qf1, data.observations, data.actions, repr_in_q)
+                err_q2 = q_equivariance_mae(qf2, data.observations, data.actions, repr_in_q)
+                writer.add_scalar("equivariance/actor_equivariance_mae", err_a, global_step)
+                writer.add_scalar("equivariance/qf1_equivariance_mae", err_q1, global_step)
+                writer.add_scalar("equivariance/qf2_equivariance_mae", err_q2, global_step)
  
 
     if args.save_model:
