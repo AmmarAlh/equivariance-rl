@@ -22,8 +22,8 @@ from symmetrizer.ops import GroupRepresentations
 from symmetrizer.groups import MatrixRepresentation
 
 # import utils
-from env_setup import make_env
-from eval import evaluate_pytorch
+from utils.env_setup import make_env
+from utils.eval import evaluate_pytorch
 
 
 os.environ["MUJOCO_GL"] = "egl"
@@ -57,7 +57,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "InvertedPendulum-v4"
     """the id of the environment"""
-    n_envs: int = 5
+    n_envs: int = 1
     """the number of parallel environments"""	
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
@@ -259,11 +259,9 @@ if __name__ == "__main__":
     in_group = GroupRepresentations(representations, "StateGroupRepr")
     representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(-1 * np.eye(1))]
     out_group = GroupRepresentations(representations, "ActionGroupRepr")
-
     repr_in = MatrixRepresentation(in_group, out_group)
     repr_out = MatrixRepresentation(out_group, out_group)
-    actor = EquiActor(envs, repr_in, repr_out, args.ch, args.emlp_basis).to(device)
-    target_actor = EquiActor(envs, repr_in, repr_out, args.ch, basis = args.emlp_basis).to(device)
+
     ## qf input and output representations
     representations = [torch.FloatTensor(np.eye(5)), torch.FloatTensor(-1 * np.eye(5))]
     in_group = GroupRepresentations(representations, "StateGroupRepr")
@@ -285,11 +283,13 @@ if __name__ == "__main__":
         qf2_target = QNetwork(envs).to(device)
         target_actor = Actor(envs).to(device)
     else:
+        actor = EquiActor(envs, repr_in, repr_out, args.ch, args.emlp_basis).to(device)
         qf1 = InvariantQNetwork(envs, repr_in_q, repr_out_q, args.ch, basis = args.emlp_basis).to(device)
         qf2 = InvariantQNetwork(envs, repr_in_q, repr_out_q, args.ch, basis = args.emlp_basis).to(device)
         qf1_target = InvariantQNetwork(envs, repr_in_q, repr_out_q, args.ch, basis = args.emlp_basis).to(device)
         qf2_target = InvariantQNetwork(envs, repr_in_q, repr_out_q, args.ch, basis = args.emlp_basis).to(device)
-
+        target_actor = EquiActor(envs, repr_in, repr_out, args.ch, basis = args.emlp_basis).to(device)
+        
     target_actor.load_state_dict(actor.state_dict())
     qf1_target.load_state_dict(qf1.state_dict())
     qf2_target.load_state_dict(qf2.state_dict())

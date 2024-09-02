@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "equivariance_rl"
+version = "0.1.0"
+description = "Single file implementation of Equivariant Reinforcement Learning"
+authors = [
+    { name = "Ammar Alhannafi", email = "ammaralhannafi@hotmail.com" }
+]
+
+dependencies = [
+    # Add your dependencies here, e.g. "requests>=2.25"
+]
+
+[tool.setuptools.packages.find]
+include = [
+    "equivariance_rl",
+    "equivariance_rl.*"
+]

@@ -26,4 +26,3 @@ def make_env(env_id, seed, idx, capture_video,run_name, video_path = "output"):
         return env
 
     return thunk
-

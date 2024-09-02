@@ -24,7 +24,7 @@ from emlp.reps import Scalar, Vector
 
 from env_setup import make_env
 from eval import evaluate_jax
-from equi_utils import (
+from utils.emlp_utils import (
     ReacherAngularActionRep,
     InvertedPendulumActionRep,
     equivariance_err_actor,

@@ -105,11 +105,15 @@ def evaluate_pytorch(
     basis: str,
     device: torch.device = torch.device("cpu"),
     capture_video: bool = True,
-    exploration_noise: float = 0.1,
     seed=1,
     video_path = "output",
 ):
     envs = gym.vector.SyncVectorEnv([make_env(env_id, seed, 0, capture_video, run_name, video_path)])
+    
+    def get_only_mean(x):
+        if isinstance(x, tuple):
+            return x[0]
+        return x
     
     if repr_in is not None:
         actor = Model(envs, repr_in=repr_in, repr_out =repr_out, hidden_size=ch, basis=basis).to(device)
@@ -124,8 +128,7 @@ def evaluate_pytorch(
     episodic_returns = []
     while len(episodic_returns) < eval_episodes:
         with torch.no_grad():
-            actions = actor(torch.Tensor(obs).to(device))
-            actions += torch.normal(0, actor.action_scale * exploration_noise)
+            actions = get_only_mean(actor(torch.Tensor(obs).to(device, dtype=torch.float64)))
             actions = actions.cpu().numpy().clip(envs.single_action_space.low, envs.single_action_space.high)
 
         next_obs, _, _, _, infos = envs.step(actions)
