@@ -33,13 +33,13 @@ from utils.symmetrizer_utils import create_inverted_pendulum_actor_representatio
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 4
+    seed: int = 1
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, torch.backends.cudnn.deterministic=False"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    track: bool = False
+    track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "equivaraince-rl"
     """the wandb's project name"""
@@ -85,15 +85,15 @@ class Args:
     """the hidden size of the network"""
     optimizer: str = "adam"
     """the optimizer to use"""
-    evaluate: bool = False
+    evaluate: bool = True
     """whether to evaluate the model"""
     # equivariant mlp specific arguments
-    use_emlp: bool = True
+    use_emlp: bool = False
     """whether to use equivaraint mlp for the network architecture"""
     emlp_group: str = "C2"
     """the group of the EMLP layer"""
     emlp_basis: str = "equivariant"
-
+    """the basis of the EMLP layer"""
 
 # ALGO LOGIC: initialize agent here:
 class QNetwork(nn.Module):

@@ -37,7 +37,7 @@ class Args:
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    track: bool = False
+    track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "equivaraince-rl"
     """the wandb's project name"""
@@ -57,7 +57,7 @@ class Args:
     """the environment id of the task"""
     n_envs: int = 5
     """the number of parallel environments"""
-    total_timesteps: int = 6000
+    total_timesteps: int = 500000
     """total timesteps of the experiments"""
     buffer_size: int = int(1e6)
     """the replay memory buffer size"""
@@ -88,7 +88,7 @@ class Args:
     evaluate: bool = True
     """whether to evaluate the model"""
     # equivariant mlp specific arguments
-    use_emlp: bool = True
+    use_emlp: bool = False
     """whether to use equivaraint mlp for the network architecture"""
     emlp_group: str = "C2"
     """the group of the EMLP layer"""
