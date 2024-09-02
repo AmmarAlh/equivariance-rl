@@ -27,7 +27,7 @@ from utils.env_setup import make_env
 from utils.eval import evaluate_pytorch
 from utils.symmetrizer_utils import create_inverted_pendulum_actor_representations, create_inverted_pendulum_qfunction_representations, actor_equivariance_mae, q_equivariance_mae
 
-
+os.environ["MUJOCO_GL"] = "egl"  # to prevent segmentation fault in headless servers
 
 @dataclass
 class Args:
@@ -57,11 +57,11 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "InvertedPendulum-v4"
     """the id of the environment"""
-    n_envs: int = 1
+    n_envs: int = 25
     """the number of parallel environments"""	
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
-    learning_rate: float = 1e-3
+    learning_rate: float = 6e-4
     """the learning rate of the optimizer"""
     buffer_size: int = int(1e6)
     """the replay memory buffer size"""
