@@ -165,5 +165,5 @@ cython_debug/
 
 */*_output/
 */*/output_*/
-equivariant-experimentation/*.json
-equivariant-experimentation/MUJOCO_LOG.TXT
+MUJOCO_LOG.TXT
+*.json
