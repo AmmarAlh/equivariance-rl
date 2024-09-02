@@ -11,11 +11,10 @@ authors = [
 ]
 
 dependencies = [
-    # Add your dependencies here, e.g. "requests>=2.25"
 ]
 
 [tool.setuptools.packages.find]
 include = [
     "equivariance_rl",
-    "equivariance_rl.*"
+    "utils",
 ]

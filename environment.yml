@@ -6,15 +6,19 @@ dependencies:
   - python=3.10
   - pip
   - pip:
+    - -e ./external/symmetrizer
     - torch
     - gymnasium[mujoco]
     - matplotlib
-    - "cython<3"
-    - pybullet
+    - cython
     - scipy
     - stable-baselines3[extra]
     - wandb
     - emlp
-    - tryo
+    - tyro
+    - jax[cuda12]
+    - flax
+    - optax
+    - moviepy
 # conda env create -f environment.yml
 # conda activate equivariance-rl

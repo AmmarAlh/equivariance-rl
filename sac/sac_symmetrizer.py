@@ -12,21 +12,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
+from typing import Optional
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
 # import utils
-from equivariant_experimentation.utils.env_setup import make_env
-from equivariant_experimentation.utils.eval import evaluate_pytorch
+from utils.env_setup import make_env
+from utils.eval import evaluate_pytorch
 
 # symmterizer imports
 from symmetrizer.nn.modules import BasisLinear
 from symmetrizer.nn.modules import BasisLinear
-from equivariant_experimentation.utils.symmetrizer_utils import create_inverted_pendulum_actor_representations, create_inverted_pendulum_qfunction_representations, actor_equivariance_mae, q_equivariance_mae
+from utils.symmetrizer_utils import create_inverted_pendulum_actor_representations, create_inverted_pendulum_qfunction_representations, actor_equivariance_mae, q_equivariance_mae
 
-
-
-os.environ["MUJOCO_GL"] = "egl"
 
 
 @dataclass
@@ -43,7 +41,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "equivaraince-rl"
     """the wandb's project name"""
-    wandb_entity: str = None
+    wandb_entity: Optional[str] = None
     """the entity (team) of wandb's project"""
     capture_video: bool = True
     """whether to capture videos of the agent performances (check out `videos` folder)"""
@@ -59,7 +57,7 @@ class Args:
     """the environment id of the task"""
     n_envs: int = 5
     """the number of parallel environments"""
-    total_timesteps: int = 5000
+    total_timesteps: int = 6000
     """total timesteps of the experiments"""
     buffer_size: int = int(1e6)
     """the replay memory buffer size"""
@@ -168,7 +166,7 @@ class InvariantSoftQNetwork(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
-        return x
+        return x.squeeze(1)
 
 
 LOG_STD_MAX = 2
@@ -246,7 +244,7 @@ if __name__ == "__main__":
             save_code=True,
             dir=wandb_dir,
         )
-    writer = SummaryWriter(f"runs/{run_name}")
+    writer = SummaryWriter(f"{runs_dir}/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),

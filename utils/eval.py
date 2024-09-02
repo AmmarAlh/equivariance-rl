@@ -119,7 +119,7 @@ def evaluate_pytorch(
         actor = Model(envs, repr_in=repr_in, repr_out =repr_out, hidden_size=ch, basis=basis).to(device)
     else:
         actor = Model(envs).to(device)
-    actor_params = torch.load(model_path, map_location=device)
+    actor_params = torch.load(model_path, map_location=device, weights_only=True)
     actor.load_state_dict(actor_params, strict=False)
     actor.eval()
 

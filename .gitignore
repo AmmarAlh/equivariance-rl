@@ -161,12 +161,9 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-equivariant-experimentation/logs-slurm/
+*/logs-slurm/
 
-*/*/output/*
-*/*/wandb/*
-*/*/*_output/
+*/*_output/
 */*/output_*/
-*/wandb/*
 equivariant-experimentation/*.json
 equivariant-experimentation/MUJOCO_LOG.TXT

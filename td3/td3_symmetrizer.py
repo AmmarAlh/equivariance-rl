@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
+from typing import Optional
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from typing import Callable 
@@ -24,9 +25,8 @@ from symmetrizer.groups import MatrixRepresentation
 # import utils
 from utils.env_setup import make_env
 from utils.eval import evaluate_pytorch
+from utils.symmetrizer_utils import create_inverted_pendulum_actor_representations, create_inverted_pendulum_qfunction_representations, actor_equivariance_mae, q_equivariance_mae
 
-
-os.environ["MUJOCO_GL"] = "egl"
 
 
 @dataclass
@@ -43,7 +43,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "equivaraince-rl"
     """the wandb's project name"""
-    wandb_entity: str = None
+    wandb_entity: Optional[str] = None
     """the entity (team) of wandb's project"""
     capture_video: bool = True
     """whether to capture videos of the agent performances (check out videos folder)"""
@@ -88,7 +88,7 @@ class Args:
     evaluate: bool = False
     """whether to evaluate the model"""
     # equivariant mlp specific arguments
-    use_emlp: bool = False
+    use_emlp: bool = True
     """whether to use equivaraint mlp for the network architecture"""
     emlp_group: str = "C2"
     """the group of the EMLP layer"""
@@ -135,15 +135,14 @@ class InvariantQNetwork(nn.Module):
         super().__init__()
         self.fc1 = BasisLinear(1, hidden_sizes, repr_in, basis=basis, gain_type=gain_type)
         self.fc2 = BasisLinear(hidden_sizes, hidden_sizes, repr_out, basis=basis, gain_type=gain_type)
-        self.fc_mu = BasisLinear(hidden_sizes, 1, repr_out, basis=basis, gain_type=gain_type)
+        self.fc3 = BasisLinear(hidden_sizes, 1, repr_out, basis=basis, gain_type=gain_type)
 
     def forward(self, x, a):
         x, a = x.unsqueeze(1), a.unsqueeze(1)
         x = torch.cat([x, a], 2)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        q_values = self.fc_mu(x)
-        return q_values
+        return self.fc3(x).squeeze(1)
 
 
 class EquiActor(nn.Module):
@@ -165,38 +164,6 @@ class EquiActor(nn.Module):
         x = x * self.action_scale + self.action_bias
         x = x.squeeze(1)
         return x
-    
-def actor_equivariance_mae(network, obs: torch.Tensor, repr_in: MatrixRepresentation, repr_out: MatrixRepresentation) -> float:
-    """
-    Calculate the MSE of the equivariance error for the actor network.
-    """
-    # Move the matrices to the network's device
-    device = obs.device
-    dtype = obs.dtype
-    repr_in_matrices = [p_in.to(device, dtype) for p_in in repr_in._input_matrices]
-    repr_out_matrices = [p_out.to(device, dtype) for p_out in repr_out._output_matrices]
-
-    transformed_inputs = torch.stack([obs @ p_in for p_in in repr_in_matrices])
-    y1 = torch.stack([network(p_x) for p_x in transformed_inputs])
-    y2 = torch.stack([network(obs) @ p_out  for p_out in repr_out_matrices])
-
-    return (y1.abs() - y2.abs()).abs().mean().item()
-
-def q_equivariance_mae(network, obs: torch.Tensor, actions: torch.Tensor, repr_in_q: MatrixRepresentation) -> float:
-    """
-    Calculate the MSE of the equivariance error for the Q-network.
-    """
-    device = obs.device
-    dtype = obs.dtype
-    obs_actions = torch.cat([obs, actions], dim=-1)
-    # Move the matrices to the network's device
-    repr_in_q_matrices = [p_in.to(device, dtype) for p_in in repr_in_q._input_matrices]
-    
-    transformed_inputs = torch.stack([obs_actions @ p_in for p_in in repr_in_q_matrices])
-    y1 = torch.stack([network(p_obs_actions[:, :obs.size(-1)], p_obs_actions[:, obs.size(-1):]) for p_obs_actions in transformed_inputs])
-    y2 = network(obs, actions).unsqueeze(0).expand_as(y1)
-
-    return (y1.abs() - y2.abs()).abs().mean().item()
 
 
 if __name__ == "__main__":
@@ -254,23 +221,10 @@ if __name__ == "__main__":
 
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
     
-    ## actor input and output representations
-    representations = [torch.FloatTensor(np.eye(4)), torch.FloatTensor(-1 * np.eye(4))]
-    in_group = GroupRepresentations(representations, "StateGroupRepr")
-    representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(-1 * np.eye(1))]
-    out_group = GroupRepresentations(representations, "ActionGroupRepr")
-    repr_in = MatrixRepresentation(in_group, out_group)
-    repr_out = MatrixRepresentation(out_group, out_group)
-
-    ## qf input and output representations
-    representations = [torch.FloatTensor(np.eye(5)), torch.FloatTensor(-1 * np.eye(5))]
-    in_group = GroupRepresentations(representations, "StateGroupRepr")
-    representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(-1 * np.eye(1))]
-    out_group = GroupRepresentations(representations, "ActionGroupRepr")
-    repr_in_q = MatrixRepresentation(in_group, out_group)
-    representations = [torch.FloatTensor(np.eye(1)), torch.FloatTensor(np.eye(1))]
-    out_group_q = GroupRepresentations(representations, "InvariantGroupRepr")
-    repr_out_q = MatrixRepresentation(out_group_q, out_group_q)
+    # Group Representations
+    if args.env_id == "InvertedPendulum-v4":
+        repr_in,repr_out = create_inverted_pendulum_actor_representations()
+        repr_in_q,repr_out_q = create_inverted_pendulum_qfunction_representations()
     
     
     
