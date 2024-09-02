@@ -165,7 +165,7 @@ logs-slurm/
 to_be_deleted/
 */*/output/
 */*_output/
-*/*/output_*/
+*/output_*/
 MUJOCO_LOG.TXT
 *.json
 
