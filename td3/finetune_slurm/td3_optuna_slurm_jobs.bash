@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=td3-equi                   # Job name
+#SBATCH --job-name=td3-equi-3                 # Job name
 #SBATCH --partition=main                      # Partition
 #SBATCH --output=logs-slurm/td3/slurm_%j.out  # SLURM and script STDOUT
 #SBATCH --error=logs-slurm/td3/slurm_%j.err   # SLURM and script STDERR
@@ -21,4 +21,5 @@ conda init bash
 conda activate equivariance-rl
 
 
-/home/s2657708/.conda/envs/equivariance-rl/bin/python td3/td3_optuna.py
+#/home/s2657708/.conda/envs/equivariance-rl/bin/python td3/td3_optuna.py
+/home/s2657708/.conda/envs/equivariance-rl/bin/wandb agent ammaralh/Equivariant_TD3_InvertedPendulum/8si6nlqw

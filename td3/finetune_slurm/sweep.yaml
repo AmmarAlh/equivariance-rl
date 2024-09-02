@@ -1,45 +1,21 @@
-project: EquiInvertedPendulum-v4
-program: td3_jax.py
+command:
+  - /home/s2657708/.conda/envs/equivariance-rl/bin/python
+  - ${program}
+  - ${args}
+  - --use-emlp
 method: bayes
 metric:
   goal: maximize
-  name: charts/total_reward
+  name: charts/cumulative_avg_return
 parameters:
-  batch_size:
-    distribution: int_uniform
-    max: 512
-    min: 128
-  ch:
-    distribution: categorical
-    values:
-      - 64
-      - 128
-  exploration_noise:
-    distribution: uniform
-    max: 0.4
-    min: 0.05
   learning_rate:
     distribution: uniform
     max: 0.001
-    min: 1.0e-04
-  noise_clip:
-    distribution: uniform
-    max: 0.8
-    min: 0.1
-  policy_frequency:
-    distribution: int_uniform
-    max: 4
-    min: 1
-  policy_noise:
-    distribution: uniform
-    max: 0.8
-    min: 0.025
-  tau:
-    distribution: uniform
-    max: 0.01
-    min: 0.001
+    min: 0.0001
   optimizer:
     distribution: categorical
     values:
       - adam
       - sgd
+program: /home/s2657708/equi-TF/equivaraince-rl/td3/td3_symmetrizer.py
+project: Equivariant_TD3_InvertedPendulum

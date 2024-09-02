@@ -161,9 +161,12 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-*/logs-slurm/
-
+logs-slurm/
+to_be_deleted/
+*/*/output/
 */*_output/
 */*/output_*/
 MUJOCO_LOG.TXT
 *.json
+
+wandb/
