@@ -41,7 +41,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "equivaraince-rl"
+    wandb_project_name: str = "Equivariance-RL"
     """the wandb's project name"""
     wandb_entity: Optional[str] = None
     """the entity (team) of wandb's project"""
@@ -57,7 +57,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "InvertedPendulum-v4"
     """the id of the environment"""
-    n_envs: int = 25
+    n_envs: int = 20
     """the number of parallel environments"""	
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
@@ -133,9 +133,9 @@ class Actor(nn.Module):
 class InvariantQNetwork(nn.Module):
     def __init__(self, env, repr_in, repr_out, hidden_sizes, basis="equivariant", gain_type="xavier"):
         super().__init__()
-        self.fc1 = BasisLinear(1, hidden_sizes, repr_in, basis=basis, gain_type=gain_type, n_samples=2*4096)
-        self.fc2 = BasisLinear(hidden_sizes, hidden_sizes, repr_out, basis=basis, gain_type=gain_type,  n_samples=2*4096)
-        self.fc3 = BasisLinear(hidden_sizes, 1, repr_out, basis=basis, gain_type=gain_type,  n_samples=2*4096)
+        self.fc1 = BasisLinear(1, hidden_sizes, repr_in, basis=basis, gain_type=gain_type, n_samples=4096)
+        self.fc2 = BasisLinear(hidden_sizes, hidden_sizes, repr_out, basis=basis, gain_type=gain_type,  n_samples=4096)
+        self.fc3 = BasisLinear(hidden_sizes, 1, repr_out, basis=basis, gain_type=gain_type,  n_samples=4096)
 
     def forward(self, x, a):
         x, a = x.unsqueeze(1), a.unsqueeze(1)
@@ -148,9 +148,9 @@ class InvariantQNetwork(nn.Module):
 class EquiActor(nn.Module):
     def __init__(self, env, repr_in, repr_out, hidden_size, basis="equivariant", gain_type="xavier"):
         super().__init__()
-        self.fc1 = BasisLinear(1, hidden_size, group=repr_in, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=2*4096)
-        self.fc2 = BasisLinear(hidden_size, hidden_size, group=repr_out, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=2*4096)
-        self.fc_mu = BasisLinear(hidden_size, 1, group=repr_out, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=2*4096)
+        self.fc1 = BasisLinear(1, hidden_size, group=repr_in, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=4096)
+        self.fc2 = BasisLinear(hidden_size, hidden_size, group=repr_out, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=4096)
+        self.fc_mu = BasisLinear(hidden_size, 1, group=repr_out, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=4096)
         
         # action rescaling
         self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))
@@ -375,7 +375,7 @@ if __name__ == "__main__":
             model_path,
             make_env,
             args.env_id,
-            eval_episodes=25,
+            eval_episodes=100,
             run_name=f"{run_name}-eval",
             Model=Actor if not args.use_emlp else EquiActor,
             repr_in=repr_in if args.use_emlp else None,
@@ -388,16 +388,6 @@ if __name__ == "__main__":
         )
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
- 
-    
-    # for finetunnning purposes with wandb sweep and optuna
-    import json
-    cumulative_avg_return = float(cumulative_avg_return[0])
-    result = {"cumulative_avg_return": cumulative_avg_return}
-    print(f"cumulative_avg_return={cumulative_avg_return}")
-    output_file = f"cumulative_avg_return.json"
-    with open(output_file, "w") as f:
-        json.dump(result, f)
     
     time.sleep(5) # prevent premature killing of the enviroment
     envs.close()

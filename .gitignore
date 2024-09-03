@@ -167,6 +167,5 @@ to_be_deleted/
 */*_output/
 */output_*/
 MUJOCO_LOG.TXT
-*.json
 
 wandb/

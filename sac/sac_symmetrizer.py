@@ -1,6 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/sac/#sac_continuous_actionpy
 import os
-import sys 
 import random
 import time
 from dataclasses import dataclass
@@ -26,6 +25,7 @@ from symmetrizer.nn.modules import BasisLinear
 from utils.symmetrizer_utils import create_inverted_pendulum_actor_representations, create_inverted_pendulum_qfunction_representations, actor_equivariance_mae, q_equivariance_mae
 
 
+os.environ["MUJOCO_GL"] = "egl"  # to prevent segmentation fault in headless servers
 
 @dataclass
 class Args:
@@ -39,7 +39,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "equivaraince-rl"
+    wandb_project_name: str = "Equivariance-RL"
     """the wandb's project name"""
     wandb_entity: Optional[str] = None
     """the entity (team) of wandb's project"""
@@ -55,8 +55,8 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "InvertedPendulum-v4"
     """the environment id of the task"""
-    n_envs: int = 5
-    """the number of parallel environments"""
+    n_envs: int = 20
+    """the number of parallel environments, starting from seed argument until seed + n_envs"""
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
     buffer_size: int = int(1e6)
@@ -436,7 +436,7 @@ if __name__ == "__main__":
             model_path,
             make_env,
             args.env_id,
-            eval_episodes=25,
+            eval_episodes=100,
             run_name=f"{run_name}-eval",
             Model=Actor if not args.use_emlp else EquiActor,
             repr_in=repr_in if args.use_emlp else None,
@@ -449,15 +449,6 @@ if __name__ == "__main__":
         )
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
-            
-    # for finetunnning purposes with wandb sweep and optuna
-    import json
-    cumulative_avg_return = float(cumulative_avg_return[0])
-    result = {"cumulative_avg_return": cumulative_avg_return}
-    print(f"cumulative_avg_return={cumulative_avg_return}")
-    output_file = f"cumulative_avg_return.json"
-    with open(output_file, "w") as f:
-        json.dump(result, f)
     
     time.sleep(5) # prevent premature killing of the enviroment
     envs.close()

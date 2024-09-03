@@ -1,5 +1,5 @@
 command:
-  - /home/s2657708/.conda/envs/equivariance-rl/bin/python
+  - python
   - ${program}
   - ${args}
 method: bayes
@@ -16,5 +16,11 @@ parameters:
     values:
       - adam
       - sgd
-program: /home/s2657708/equi-TF/equivaraince-rl/td3/td3_symmetrizer.py
-project: TD3_InvertedPendulum
+  batch_size:
+    distribution: categorical
+       - 512
+       - 256
+       - 128
+
+program: td3/td3_symmetrizer.py
+project: Equivariant_TD3_InvertedPendulum
