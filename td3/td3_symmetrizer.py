@@ -383,7 +383,6 @@ if __name__ == "__main__":
             basis=args.emlp_basis if args.use_emlp else None,
             ch=args.ch,
             device=device,
-            exploration_noise=args.exploration_noise,
             seed=args.seed,
             video_path=output_dir,
         )
