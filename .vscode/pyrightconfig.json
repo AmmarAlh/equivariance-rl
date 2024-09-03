@@ -1,0 +1,8 @@
+{
+    "exclude": [
+      "__pycache__",
+      "to_be_deleted",
+      ".venv",
+      "logs-slurm" 
+    ]
+  }
