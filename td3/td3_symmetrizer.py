@@ -133,9 +133,9 @@ class Actor(nn.Module):
 class InvariantQNetwork(nn.Module):
     def __init__(self, env, repr_in, repr_out, hidden_sizes, basis="equivariant", gain_type="xavier"):
         super().__init__()
-        self.fc1 = BasisLinear(1, hidden_sizes, repr_in, basis=basis, gain_type=gain_type)
-        self.fc2 = BasisLinear(hidden_sizes, hidden_sizes, repr_out, basis=basis, gain_type=gain_type)
-        self.fc3 = BasisLinear(hidden_sizes, 1, repr_out, basis=basis, gain_type=gain_type)
+        self.fc1 = BasisLinear(1, hidden_sizes, repr_in, basis=basis, gain_type=gain_type, n_samples=2*4096)
+        self.fc2 = BasisLinear(hidden_sizes, hidden_sizes, repr_out, basis=basis, gain_type=gain_type,  n_samples=2*4096)
+        self.fc3 = BasisLinear(hidden_sizes, 1, repr_out, basis=basis, gain_type=gain_type,  n_samples=2*4096)
 
     def forward(self, x, a):
         x, a = x.unsqueeze(1), a.unsqueeze(1)
@@ -148,9 +148,9 @@ class InvariantQNetwork(nn.Module):
 class EquiActor(nn.Module):
     def __init__(self, env, repr_in, repr_out, hidden_size, basis="equivariant", gain_type="xavier"):
         super().__init__()
-        self.fc1 = BasisLinear(1, hidden_size, group=repr_in, basis=basis, gain_type=gain_type, bias_init=False)
-        self.fc2 = BasisLinear(hidden_size, hidden_size, group=repr_out, basis=basis, gain_type=gain_type, bias_init=False)
-        self.fc_mu = BasisLinear(hidden_size, 1, group=repr_out, basis=basis, gain_type=gain_type, bias_init=False)
+        self.fc1 = BasisLinear(1, hidden_size, group=repr_in, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=2*4096)
+        self.fc2 = BasisLinear(hidden_size, hidden_size, group=repr_out, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=2*4096)
+        self.fc_mu = BasisLinear(hidden_size, 1, group=repr_out, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=2*4096)
         
         # action rescaling
         self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))

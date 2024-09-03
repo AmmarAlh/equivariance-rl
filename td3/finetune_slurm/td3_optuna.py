@@ -5,9 +5,8 @@ import json
 
 def objective(trial):
     # Sample hyperparameters using Optuna
-    batch_size = trial.suggest_categorical('batch_size', [64, 128, 256])
-    ch = trial.suggest_categorical('ch', [64, 128, 256])
-    exploration_noise = trial.suggest_float('exploration_noise', 0.05, 0.3)
+    batch_size = trial.suggest_categorical('batch_size', [ 128, 256])
+    exploration_noise = trial.suggest_float('exploration_noise', 0.05, 0.5)
     learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3)
     noise_clip = trial.suggest_float('noise_clip', 0.3, 0.6)
     policy_frequency = trial.suggest_int('policy_frequency', 2, 3)
@@ -17,7 +16,7 @@ def objective(trial):
     command = [
         "/home/s2657708/.conda/envs/equivariance-rl/bin/python", "td3/td3_symmetrizer.py",
         "--batch_size", str(batch_size),
-        "--ch", str(ch),
+        "--ch", str(128),
         "--exploration_noise", str(exploration_noise),
         "--learning_rate", str(learning_rate),
         "--noise_clip", str(noise_clip),
@@ -25,12 +24,13 @@ def objective(trial):
         "--policy_noise", str(policy_noise),
         "--tau", str(tau),
         "--optimizer", optimizer,
-        "--wandb_project_name", "Equivariant_TD3_InvertedPendulum",
-        "--wandb_mode", "offline",
-        "--use_emlp",
-        "--output_dir", "output_symmetrizer",
+        "--wandb_project_name", "TD3_InvertedPendulum",
+        "--wandb_mode", "online",
+        #"--use_emlp",
+        "--output_dir", "output_none_2",
         "--seed", "1",
-        "--n_envs", "20",
+        "--n_envs", "25",
+        "--track",
     ]
 
     # Run the script
