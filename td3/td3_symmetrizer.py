@@ -27,7 +27,7 @@ from utils.env_setup import make_env
 from utils.eval import evaluate_pytorch
 from utils.symmetrizer_utils import create_inverted_pendulum_actor_representations, create_inverted_pendulum_qfunction_representations, actor_equivariance_mae, q_equivariance_mae
 
-os.environ["MUJOCO_GL"] = "egl"  # to prevent segmentation fault in headless servers
+#os.environ["MUJOCO_GL"] = "egl"  # to prevent segmentation fault in headless servers
 
 @dataclass
 class Args:
@@ -118,8 +118,8 @@ class Actor(nn.Module):
         self.fc2 = nn.Linear(args.ch, args.ch, dtype=torch.float64)
         self.fc_mu = nn.Linear(args.ch, np.prod(env.single_action_space.shape), dtype=torch.float64)
         # action rescaling
-        self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))
-        self.register_buffer("action_bias", torch.tensor((env.single_action_space.high + env.single_action_space.low) / 2.0, dtype=torch.float32))
+        self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float64))
+        self.register_buffer("action_bias", torch.tensor((env.single_action_space.high + env.single_action_space.low) / 2.0, dtype=torch.float64))
 
     def forward(self, x):
 
@@ -153,8 +153,8 @@ class EquiActor(nn.Module):
         self.fc_mu = BasisLinear(hidden_size, 1, group=repr_out, basis=basis, gain_type=gain_type, bias_init=False,  n_samples=4096)
         
         # action rescaling
-        self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float32))
-        self.register_buffer("action_bias", torch.tensor((env.single_action_space.high + env.single_action_space.low) / 2.0, dtype=torch.float32))
+        self.register_buffer("action_scale", torch.tensor((env.single_action_space.high - env.single_action_space.low) / 2.0, dtype=torch.float64))
+        self.register_buffer("action_bias", torch.tensor((env.single_action_space.high + env.single_action_space.low) / 2.0, dtype=torch.float64))
 
     def forward(self, x):
         x = x.unsqueeze(1)
@@ -291,14 +291,14 @@ if __name__ == "__main__":
                     print(f"global_step={global_step}, episodic_return={episodic_return}")
                     writer.add_scalar("charts/episodic_return", episodic_return, global_step)
                     writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
-                    break
-            # Calculate total reward and total episodes
-            total_reward += episodic_return
-            total_episodes += 1
-            # Calculate cumulative average return
-            cumulative_avg_return = (total_reward / total_episodes)
-            writer.add_scalar("charts/cumulative_avg_return", cumulative_avg_return, global_step)
 
+                    # Calculate total reward and total episodes
+                    total_reward += episodic_return
+                    total_episodes += 1
+                    # Calculate cumulative average return
+                    cumulative_avg_return = (total_reward / total_episodes)
+                    writer.add_scalar("charts/cumulative_avg_return", cumulative_avg_return, global_step)
+                    break
         # TRY NOT TO MODIFY: save data to reply buffer; handle final_observation
         real_next_obs = next_obs.copy()
         for idx, trunc in enumerate(truncations):
