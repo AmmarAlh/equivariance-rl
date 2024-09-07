@@ -136,8 +136,10 @@ def evaluate_pytorch(
             for info in infos["final_info"]:
                 if "episode" not in info:
                     continue
-                print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
+                if len(episodic_returns) % 10 == 0:
+                    print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
                 episodic_returns += [info["episode"]["r"]]
         obs = next_obs
-
+    
+    envs.close()
     return episodic_returns
