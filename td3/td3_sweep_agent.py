@@ -36,7 +36,7 @@ def train(config=None):
                     "--policy-noise", str(config.policy_noise),
                     "--track",
                     "--use-emlp",
-                    "--total-timesteps", "5500",
+                    # "--total-timesteps", "5500",
                     "--n-envs", "1",
                     "--no-evaluate",
                 ],
@@ -72,4 +72,4 @@ def train(config=None):
         wandb.finish()
 
 # Launch the sweep agent to run multiple experiments
-wandb.agent(sweep_id, project=PROJECT_NAME, function=train, count=2)
+wandb.agent(sweep_id, project=PROJECT_NAME, function=train, count=30)

@@ -2,7 +2,7 @@ import wandb
 
 # Define the sweep configuration
 sweep_config = {
-    'method': 'bayes',  # You can use 'grid', 'random', or 'bayes'
+    'method': 'bayes', 
     'metric': {
         'name': 'charts/cumulative_avg_return_ac_seeds',
         'goal': 'maximize'
@@ -37,12 +37,12 @@ sweep_config = {
         },
         'tau': {
             'distribution': 'uniform',
-            'min': 0.004,
+            'min': 0.002,
             'max': 0.008
         },
         'policy_noise': {
             'distribution': 'uniform',
-            'min': 0.2,
+            'min': 0.1,
             'max': 0.4
         }
     },
