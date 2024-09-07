@@ -169,3 +169,5 @@ to_be_deleted/
 MUJOCO_LOG.TXT
 
 wandb/
+
+sweep_id.txt

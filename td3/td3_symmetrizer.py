@@ -169,9 +169,8 @@ class EquiActor(nn.Module):
 if __name__ == "__main__":
 
     args = tyro.cli(Args)
-    
-    seed_info = f"seeds_{args.seed}_{args.seed + args.n_envs - 1}" if args.n_envs > 1 else f"seed_{args.seed}"
-    run_name = f"{args.env_id}__{args.exp_name}__{seed_info}__{int(time.time())}__{args.emlp_group if args.use_emlp else 'None'}"
+    run_name = f"{args.env_id}_{args.exp_name}_seed_{args.seed}_n-envs_{args.n_envs}_{int(time.time())}_{args.emlp_group if args.use_emlp else 'None'}"
+
     
     # create the output directory where the logging of wandb, tensorboard and model checkpoints will be stored
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -217,7 +216,7 @@ if __name__ == "__main__":
     # device: automatically set to GPU or CPU
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     # env setup
-    envs = gym.vector.SyncVectorEnv([make_env(args.env_id, args.seed + i, i, args.capture_video, run_name, video_path=output_dir) for i in range(args.n_envs)])
+    envs = gym.vector.SyncVectorEnv([make_env(args.env_id, args.seed, i, args.capture_video, run_name, video_path=output_dir) for i in range(args.n_envs)])
 
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
     
@@ -288,7 +287,8 @@ if __name__ == "__main__":
             for info in infos["final_info"]:
                 if info is not None and "episode" in info:
                     episodic_return = info["episode"]["r"]
-                    print(f"global_step={global_step}, episodic_return={episodic_return}")
+                    if global_step % 10000 == 0:
+                        print(f"global_step={global_step}, episodic_return={episodic_return}")
                     writer.add_scalar("charts/episodic_return", episodic_return, global_step)
                     writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
 
@@ -362,14 +362,17 @@ if __name__ == "__main__":
                 writer.add_scalar("equivariance/actor_equivariance_mae", err_a, global_step)
                 writer.add_scalar("equivariance/qf1_equivariance_mae", err_q1, global_step)
                 writer.add_scalar("equivariance/qf2_equivariance_mae", err_q2, global_step)
- 
-
+    
+    print(f"Final Cumulative Avg Return: {cumulative_avg_return.item()}")
+    
     if args.save_model:
         
         model_path = f"{models_dir}/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(actor.state_dict(), model_path)
         print(f"model saved to {model_path}")
         
+    time.sleep(5) # prevent premature killing of the enviroment
+    envs.close()
     if args.evaluate:
         episodic_returns = evaluate_pytorch(
             model_path,
@@ -389,6 +392,4 @@ if __name__ == "__main__":
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
     
-    time.sleep(5) # prevent premature killing of the enviroment
-    envs.close()
     writer.close()
