@@ -10,8 +10,8 @@ sweep_config = {
     'parameters': {
         'learning_rate': {
             'distribution': 'uniform',
-            'min': 2.5e-4,  # Minimum learning rate
-            'max': 2.5e-2  # Maximum learning rate
+            'min': 1e-3,  # Minimum learning rate
+            'max': 2e-2  # Maximum learning rate
         },
         'num_steps': {
             'values': [64, 128, 256, 512]  # Number of steps to run the environment
