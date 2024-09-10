@@ -11,7 +11,6 @@ class ReacherObservationWrapper(gym.ObservationWrapper):
         obs[1], obs[2] = obs[2], obs[1]
         return obs
 
-
 def make_env(env_id, seed, idx, capture_video,run_name, video_path = "output"):
     def thunk():
         if capture_video and idx == 0:

@@ -3,24 +3,23 @@ import os
 import random
 import time
 from dataclasses import dataclass
+from typing import Optional
+from typing import Callable 
+import tyro
 
+# td3 on gym environments
 import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import tyro
-from typing import Optional
-from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
-from typing import Callable 
+from stable_baselines3.common.buffers import ReplayBuffer
+
 
 # symmterizer imports
 from symmetrizer.nn.modules import BasisLinear
-from symmetrizer.nn.modules import BasisLinear
-from symmetrizer.ops import GroupRepresentations
-from symmetrizer.groups import MatrixRepresentation
 
 # import utils
 from utils.env_setup import make_env
@@ -61,7 +60,7 @@ class Args:
     """the number of parallel environments"""	
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
-    learning_rate: float = 6e-4
+    learning_rate: float = 0.001	
     """the learning rate of the optimizer"""
     buffer_size: int = int(1e6)
     """the replay memory buffer size"""
@@ -224,7 +223,8 @@ if __name__ == "__main__":
     if args.env_id == "InvertedPendulum-v4":
         repr_in,repr_out = create_inverted_pendulum_actor_representations()
         repr_in_q,repr_out_q = create_inverted_pendulum_qfunction_representations()
-    
+    else :
+        raise NotImplementedError(f"Environment {args.env_id} is not implemented")
     
     
     
@@ -249,9 +249,11 @@ if __name__ == "__main__":
     if args.optimizer == "adam":
         q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.learning_rate)
         actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.learning_rate)
-    else:
+    elif args.optimizer == "sgd":
         q_optimizer = optim.SGD(list(qf1.parameters()) + list(qf2.parameters()), lr=args.learning_rate)
         actor_optimizer = optim.SGD(list(actor.parameters()), lr=args.learning_rate)
+    else:
+        raise NotImplementedError(f"Optimizer {args.optimizer} is not implemented")
     # replay buffer
     envs.single_observation_space.dtype = np.float64
     rb = ReplayBuffer(
