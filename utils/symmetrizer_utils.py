@@ -63,7 +63,7 @@ def create_inverted_pendulum_qfunction_representations():
     ]
     out_group_qf_invariant = GroupRepresentations(invariant_output_representations, "InvariantGroupRepr")
     
-    repr_out_q = MatrixRepresentation(out_group_qf_invariant, out_group_qf_invariant)
+    repr_out_q = MatrixRepresentation(out_group_qf, out_group_qf_invariant)
     
     return repr_in_q, repr_out_q
 def create_cartpole_actor_representations():
@@ -112,7 +112,7 @@ def create_cartpole_vfunction_representations():
         torch.FloatTensor(np.eye(2)), 
         torch.FloatTensor([[0,1],[1,0]])
     ]
-    out_group_vf = GroupRepresentations(vf_output_representations, "ValueGroupRepr")
+    out_group_vf = GroupRepresentations(vf_output_representations, "ActionGroupRepr")
     
     # V-function invariant output representation
     invariant_output_representations = [
@@ -121,7 +121,7 @@ def create_cartpole_vfunction_representations():
     ]
     out_group_vf_invariant = GroupRepresentations(invariant_output_representations, "InvariantGroupRepr")
     repr_in_v = MatrixRepresentation(in_group_vf, out_group_vf)
-    repr_out_v = MatrixRepresentation(out_group_vf_invariant, out_group_vf_invariant)
+    repr_out_v = MatrixRepresentation(out_group_vf, out_group_vf_invariant)
     
     return repr_in_v, repr_out_v
 
