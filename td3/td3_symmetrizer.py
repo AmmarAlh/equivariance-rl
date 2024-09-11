@@ -289,8 +289,7 @@ if __name__ == "__main__":
             for info in infos["final_info"]:
                 if info is not None and "episode" in info:
                     episodic_return = info["episode"]["r"]
-                    if global_step % 10000 == 0:
-                        print(f"global_step={global_step}, episodic_return={episodic_return}")
+                    print(f"global_step={global_step}, episodic_return={episodic_return}")
                     writer.add_scalar("charts/episodic_return", episodic_return, global_step)
                     writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
 
