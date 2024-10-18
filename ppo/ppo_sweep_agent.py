@@ -28,10 +28,12 @@ def train(config=None):
                 "--vf-coef", str(config.vf_coef),
                 "--anneal-lr" if config.anneal_lr else "--no-anneal-lr",
                 "--track",
-                "--use-emlp",
+                "--use-emlp",# dont forget to change this
                 "--total-timesteps", "500000",
                 "--num-envs", "2",
+                "--ch", "64",
                 "--no-evaluate",
+                "--seed", str(6),
             ],
             capture_output=True,
             text=True
@@ -43,4 +45,4 @@ def train(config=None):
         wandb.finish()
 
 # Launch the sweep agent to run multiple experiments
-wandb.agent(sweep_id, project=PROJECT_NAME, function=train, count=50)
+wandb.agent(sweep_id, project=PROJECT_NAME, function=train)
