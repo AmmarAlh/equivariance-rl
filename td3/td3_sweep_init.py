@@ -4,14 +4,14 @@ import wandb
 sweep_config = {
     'method': 'bayes', 
     'metric': {
-        'name': 'charts/cumulative_avg_return_ac_seeds',
+        'name': 'charts/cumulative_avg_return',
         'goal': 'maximize'
     },
     'parameters': {
         'learning_rate': {
             'distribution': 'uniform',
-            'min': 0.0003,
-            'max': 0.003
+            'min': 0.0007,
+            'max': 0.007
         },
         'optimizer': {
             'distribution': 'categorical',
@@ -48,7 +48,7 @@ sweep_config = {
     },
 }
 
-PROJECT_NAME = "Equivariant_TD3_InvertedPendulum"
+PROJECT_NAME = "N_Equivariant_TD3_InvertedPendulum"
 
 # Initialize the sweep
 sweep_id = wandb.sweep(sweep_config, project=PROJECT_NAME)

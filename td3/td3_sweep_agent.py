@@ -6,7 +6,7 @@ import numpy as np
 with open("sweep_id.txt", "r") as f:
     sweep_id = f.read().strip()
 
-PROJECT_NAME = "Equivariant_TD3_InvertedPendulum"
+PROJECT_NAME = "N_Equivariant_TD3_InvertedPendulum"
 
 
 def train(config=None):
@@ -30,7 +30,7 @@ def train(config=None):
                 "--policy-noise", str(config.policy_noise),
                 "--track",
                 "--use-emlp",
-                "--total-timesteps", "500000",
+                "--total-timesteps", "300000",
                 "--n-envs", "1",
                 "--ch", "64",
                 "--no-evaluate",
