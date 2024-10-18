@@ -171,3 +171,5 @@ MUJOCO_LOG.TXT
 wandb/
 
 sweep_id.txt
+
+runs

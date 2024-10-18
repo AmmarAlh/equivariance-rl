@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=td3-equi-8                # Job name
+#SBATCH --job-name=td3-best                 # Job name
 #SBATCH --partition=main                      # Partition
-#SBATCH --output=logs-slurm/td3/slurm_%j.out  # SLURM and script STDOUT
-#SBATCH --error=logs-slurm/td3/slurm_%j.err   # SLURM and script STDERR
+#SBATCH --output=logs-slurm/ppo/slurm_%j.out  # SLURM and script STDOUT
+#SBATCH --error=logs-slurm/ppo/slurm_%j.err   # SLURM and script STDERR
 #SBATCH --gres=gpu:1                        # Request 1 GPU
 #SBATCH --ntasks=1                            # Run 1 task at a time
 #SBATCH --cpus-per-task=8                    # Allocate CPUs per task (adjust based on your needs)
@@ -21,8 +21,7 @@ conda init bash
 source ~/.bashrc 
 conda activate equivariance-rl
 
-#/home/s2657708/.conda/envs/equivariance-rl/bin/python td3/td3_optuna.py
-#/home/s2657708/.conda/envs/equivariance-rl/bin/wandb agent ammaralh/Equivariant_TD3_InvertedPendulum/8si6nlqw
-# echo which python
-python -c "import sys; print(f'Using Python interpreter at: {sys.executable}')"
-wandb agent ammaralh/Equivariant_TD3_InvertedPendulum/j954574a
+for seed in {1..25} 
+do
+    python td3/td3_symmetrizer.py --wandb-project-name Final_TD3_InvertedPendulum --track --no-use-emlp --n-envs 1 --no-evaluate --seed $seed
+done
