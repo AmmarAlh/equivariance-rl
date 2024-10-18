@@ -7,8 +7,8 @@ metric:
 parameters:
   learning_rate:
     distribution: uniform
-    max: 0.003
-    min: 0.0003
+    max: 0.006
+    min: 0.0006
   optimizer:
     distribution: categorical
     values:
@@ -50,4 +50,4 @@ command:
   - --ch 
   - 64
   - --n-envs
-  - 10
+  - 1
