@@ -48,10 +48,7 @@ def create_inverted_pendulum_qfunction_representations():
     in_group_qf = GroupRepresentations(qf_input_representations, "StateGroupRepr")
     
     # Q-function output representation
-    qf_output_representations = [
-        torch.FloatTensor(np.eye(1)), 
-        torch.FloatTensor(-1 * np.eye(1))
-    ]
+    qf_output_representations =  [torch.FloatTensor(np.eye(5)), torch.FloatTensor( [[0, 1, 0, 0, 0], [1, 0, 0, 0, 0], [0, 0, 0, 1, 0], [0, 0, 1, 0, 0], [0, 0, 0, 0, 1]])]
     out_group_qf = GroupRepresentations(qf_output_representations, "ActionGroupRepr")
     
     repr_in_q = MatrixRepresentation(in_group_qf, out_group_qf)

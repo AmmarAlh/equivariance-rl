@@ -139,8 +139,8 @@ class InvariantQNetwork(nn.Module):
     def forward(self, x, a):
         x, a = x.unsqueeze(1), a.unsqueeze(1)
         x = torch.cat([x, a], 2)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = F.tanh(self.fc1(x))
+        x = F.tanh(self.fc2(x))
         return self.fc3(x).squeeze(1)
 
 
@@ -157,8 +157,8 @@ class EquiActor(nn.Module):
 
     def forward(self, x):
         x = x.unsqueeze(1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = F.tanh(self.fc1(x))
+        x = F.tanh(self.fc2(x))
         x = torch.tanh(self.fc_mu(x))
         x = x * self.action_scale + self.action_bias
         x = x.squeeze(1)
