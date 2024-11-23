@@ -20,15 +20,22 @@ def create_inverted_pendulum_actor_representations():
     ]
     in_group_actor = GroupRepresentations(actor_input_representations, "StateGroupRepr")
     
+    inter_group_actor_rep  =  [
+        torch.FloatTensor(np.eye(4)), 
+        torch.FloatTensor(-1 * np.eye(4))
+    ]
+    inter_group_actor = GroupRepresentations(inter_group_actor_rep, "ActionGroupRepr")
+    
+    
     # Actor output representation
     actor_output_representations = [
         torch.FloatTensor(np.eye(1)), 
-        torch.FloatTensor(-1 * np.eye(1))
+        torch.FloatTensor(-1*np.eye(1))
     ]
     out_group_actor = GroupRepresentations(actor_output_representations, "ActionGroupRepr")
     
-    repr_in = MatrixRepresentation(in_group_actor, out_group_actor)
-    repr_out = MatrixRepresentation(out_group_actor, out_group_actor)
+    repr_in = MatrixRepresentation(in_group_actor, inter_group_actor)
+    repr_out = MatrixRepresentation(inter_group_actor, out_group_actor)
     
     return repr_in, repr_out
 
@@ -48,7 +55,7 @@ def create_inverted_pendulum_qfunction_representations():
     in_group_qf = GroupRepresentations(qf_input_representations, "StateGroupRepr")
     
     # Q-function output representation
-    qf_output_representations =  [torch.FloatTensor(np.eye(5)),  torch.FloatTensor( [[0, 1, 0, 0, 0], [1, 0, 0, 0, 0], [0, 1, 0, 0, 0], [0, 0, 0, 0, 1], [0, 0, 0, 1, 0]])]
+    qf_output_representations =  [torch.FloatTensor(np.eye(5)),  torch.FloatTensor( [[0, 1, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 0], [0, 0, 0, 0, 1], [1, 0, 0, 0, 0]])]
     out_group_qf = GroupRepresentations(qf_output_representations, "ActionGroupRepr")
     
     repr_in_q = MatrixRepresentation(in_group_qf, out_group_qf)
@@ -143,7 +150,7 @@ def actor_equivariance_mae(network, obs: torch.Tensor, repr_in: MatrixRepresenta
     y1 = torch.stack([get_only_mean(network(p_x)) for p_x in transformed_inputs])
     y2 = torch.stack([get_only_mean(network(obs)) @ p_out  for p_out in repr_out_matrices])
 
-    return (y1.abs() - y2.abs()).abs().mean().item()
+    return (y1 - y2).abs().mean().item()
 
 def q_equivariance_mae(network, obs: torch.Tensor, actions: torch.Tensor, repr_in_q: MatrixRepresentation) -> float:
     """
@@ -159,4 +166,4 @@ def q_equivariance_mae(network, obs: torch.Tensor, actions: torch.Tensor, repr_i
     y1 = torch.stack([network(p_obs_actions[:, :obs.size(-1)], p_obs_actions[:, obs.size(-1):]) for p_obs_actions in transformed_inputs])
     y2 = network(obs, actions).unsqueeze(0).expand_as(y1)
 
-    return (y1.abs() - y2.abs()).abs().mean().item()
+    return (y1 - y2).abs().mean().item()

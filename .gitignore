@@ -173,3 +173,7 @@ wandb/
 sweep_id.txt
 
 runs
+
+*/output/
+*/dataset/
+*/processed_data/
