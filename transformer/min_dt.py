@@ -15,7 +15,56 @@ from dataclasses import dataclass
 import time
 import math
 from torch.utils.tensorboard import SummaryWriter
+from symmetrizer.nn.modules import BasisLinear
+from symmetrizer.ops import GroupRepresentations
+from symmetrizer.groups import MatrixRepresentation
 # =========================== Utility Functions ===========================
+def reflect_states(states):
+    """Reflect the states (e.g., negate specific dimensions)."""
+    reflected_states = torch.clone(states)
+    reflected_states*= -1  
+    return reflected_states
+
+def reflect_actions(actions):
+    """Reflect the actions similarly to states."""
+    reflected_actions = torch.clone(actions)
+    reflected_actions*= -1  
+    return reflected_actions
+
+def test_equivariance(model, timesteps, states, actions, returns_to_go, traj_mask):
+    """Test equivariance of the model."""
+    model.eval()  # Set the model to evaluation mode
+
+    # Reflect states and actions
+    reflected_states = reflect_states(states)
+    reflected_actions = reflect_actions(actions)
+
+    # Get predictions for original inputs
+    with torch.no_grad():
+        state_preds, action_preds, _ = model.forward(
+            timesteps=timesteps,
+            states=states,
+            actions=actions,
+            returns_to_go=returns_to_go
+        )
+
+        # Get predictions for reflected inputs
+        reflected_state_preds, reflected_action_preds, _ = model.forward(
+            timesteps=timesteps,
+            states=reflected_states,
+            actions=reflected_actions,
+            returns_to_go=returns_to_go
+        )
+
+    # Reflect the predictions back
+    reflected_state_preds = reflect_states(reflected_state_preds)
+    reflected_action_preds = reflect_actions(reflected_action_preds)
+
+    # Compute equivariance loss
+    state_equivariance_loss = torch.mean((state_preds - reflected_state_preds) ** 2).item()
+    action_equivariance_loss = torch.mean((action_preds - reflected_action_preds) ** 2).item()
+
+    return state_equivariance_loss, action_equivariance_loss
 
 def discount_cumsum(x, gamma):
     """
@@ -212,6 +261,40 @@ class DecisionTransformer(nn.Module):
         self.state_dim = state_dim
         self.act_dim = act_dim
         self.h_dim = h_dim
+               ## group representations
+        in_action_embedding = [
+            torch.DoubleTensor(np.eye(act_dim)), 
+            torch.DoubleTensor(-1 * np.eye(act_dim))
+        ]
+        in_group = GroupRepresentations(in_action_embedding, "ActionRepr")
+        
+        
+
+        out_action_embedding =  [
+            torch.DoubleTensor(np.eye(context_len)), 
+            torch.DoubleTensor(-1 * np.eye(context_len))
+        ]
+        out_group = GroupRepresentations(out_action_embedding, "ActionRepr")
+
+
+        repr_in = MatrixRepresentation(in_group, out_group)
+        repr_out = MatrixRepresentation(out_group, in_group)
+        ########################################################
+        in_state_embedding = [
+        torch.DoubleTensor(np.eye(state_dim)), 
+        torch.DoubleTensor(-1 * np.eye(state_dim))
+        ]
+        in_group = GroupRepresentations(in_state_embedding, "ActionRepr")
+        
+
+        out_state_embedding =  [
+            torch.DoubleTensor(np.eye(context_len)), 
+            torch.DoubleTensor(-1 * np.eye(context_len))
+        ]
+        out_group = GroupRepresentations(out_state_embedding, "ActionRepr")
+        
+        repr_in_s = MatrixRepresentation(in_group, out_group)
+        repr_out_s = MatrixRepresentation(out_group, in_group)
 
         ### transformer blocks
         input_seq_len = 3 * context_len
@@ -229,16 +312,25 @@ class DecisionTransformer(nn.Module):
         # use_action_tanh = False # False for discrete actions
 
         # continuous actions
-        self.embed_action = torch.nn.Linear(act_dim, h_dim)
+        if args.use_emlp:
+            self.embed_action = BasisLinear(1, h_dim, group=repr_in)
+        else:
+            self.embed_action = torch.nn.Linear(act_dim, h_dim)
+
         use_action_tanh = True # True for continuous actions
 
         ### prediction heads
         self.predict_rtg = torch.nn.Linear(h_dim, 1)
-        self.predict_state = torch.nn.Linear(h_dim, state_dim)
-        self.predict_action = nn.Sequential(
-            *([nn.Linear(h_dim, act_dim)] + ([nn.Tanh()] if use_action_tanh else []))
-        )
-
+        if args.use_emlp:
+            self.predict_state = BasisLinear(h_dim, 1, group=repr_out_s)
+            self.predict_action = nn.Sequential(
+                *([BasisLinear(h_dim, 1, group=repr_out)] + ([nn.Tanh()] if use_action_tanh else []))
+            )
+        else:
+            self.predict_state = torch.nn.Linear(h_dim, state_dim)
+            self.predict_action = nn.Sequential(
+                *([nn.Linear(h_dim, act_dim)] + ([nn.Tanh()] if use_action_tanh else []))
+            )
 
     def forward(self, timesteps, states, actions, returns_to_go):
 
@@ -247,9 +339,19 @@ class DecisionTransformer(nn.Module):
         time_embeddings = self.embed_timestep(timesteps)
 
         # time embeddings are treated similar to positional embeddings
-        state_embeddings = self.embed_state(states) + time_embeddings
-        action_embeddings = self.embed_action(actions) + time_embeddings
-        returns_embeddings = self.embed_rtg(returns_to_go) + time_embeddings
+        if args.use_emlp:
+            state_embeddings = self.embed_state(states)
+            action_embeddings = self.embed_action(actions)
+            returns_embeddings = self.embed_rtg(returns_to_go)
+        else:
+            state_embeddings = self.embed_state(states) + time_embeddings
+            action_embeddings = self.embed_action(actions) + time_embeddings
+            returns_embeddings = self.embed_rtg(returns_to_go) + time_embeddings
+
+        
+        if args.use_emlp:
+            state_embeddings = state_embeddings.permute(0, 2, 1)
+            action_embeddings = action_embeddings.permute(0, 2, 1)
 
         # stack rtg, states and actions and reshape sequence as
         # (r1, s1, a1, r2, s2, a2 ...)
@@ -270,9 +372,12 @@ class DecisionTransformer(nn.Module):
 
         # get predictions
         return_preds = self.predict_rtg(h[:,2])     # predict next rtg given r, s, a
-        state_preds = self.predict_state(h[:,2])    # predict next state given r, s, a
-        action_preds = self.predict_action(h[:,1])  # predict action given r, s
-
+        if args.use_emlp:
+            state_preds = self.predict_state(h[:,2].permute(0, 2, 1))    # predict next state given r, s, a
+            action_preds = self.predict_action(h[:,1].permute(0, 2, 1))  # predict action given r, s
+        else:
+            state_preds = self.predict_state(h[:,2])    # predict next state given r, s, a
+            action_preds = self.predict_action(h[:,1])  # predict action given r, s
         return state_preds, action_preds, return_preds
 
 # =========================== Training and Evaluation ===========================
@@ -282,12 +387,15 @@ def train_decision_transformer(model, log_dir, optimizer, scheduler, data_loader
     Train the Decision Transformer with a dataset and log progress.
     """
     start_time = datetime.now().replace(microsecond=0)
+    start_time_str = start_time.strftime("%y-%m-%d-%H-%M-%S")
+    log_csv_name = "dt_InvertedPendulum-v4" + "_log_" + start_time_str + ".csv"
     total_samples = 0
     max_d4rl_score = -1.0
+    state_eq_loss = 0
+    action_eq_loss = 0
 
-
-    log_csv_path = os.path.join(log_dir, "training_log.csv")
-    csv_writer = csv.writer(open(log_csv_path, 'a', newline=''))
+    log_csv_path = os.path.join(log_dir, log_csv_name)
+    csv_writer = csv.writer(open(log_csv_path, 'a', 1))
     csv_writer.writerow(["duration", "num_updates", "action_loss", "eval_avg_reward", "eval_avg_ep_len", "eval_d4rl_score"])
 
     # Convert DataLoader into an iterator
@@ -303,8 +411,7 @@ def train_decision_transformer(model, log_dir, optimizer, scheduler, data_loader
             except StopIteration:
                 data_loader_iter  = iter(data_loader)
                 timesteps, states, actions, returns_to_go, traj_mask = next(data_loader_iter)
-            context_len = states.shape[1]
-            total_samples += context_len
+
             timesteps, states, actions, returns_to_go, traj_mask = (
                 timesteps.to(device),
                 states.to(device),
@@ -323,6 +430,10 @@ def train_decision_transformer(model, log_dir, optimizer, scheduler, data_loader
             action_preds = action_preds.view(-1, model.act_dim)[traj_mask.view(-1) > 0]
             action_target = actions.view(-1, model.act_dim)[traj_mask.view(-1) > 0]
             action_loss = F.mse_loss(action_preds, action_target, reduction='mean')
+            state_eq_loss, action_eq_loss = test_equivariance(model, timesteps, states, actions, returns_to_go, traj_mask)
+            
+            writer.add_scalar("Loss/State Equivariance Loss", state_eq_loss, total_samples)
+            writer.add_scalar("Loss/Action Equivariance Loss", action_eq_loss, total_samples)          
 
             optimizer.zero_grad()
             action_loss.backward()
@@ -331,7 +442,8 @@ def train_decision_transformer(model, log_dir, optimizer, scheduler, data_loader
             scheduler.step()
 
             action_losses.append(action_loss.item())
-
+            
+        total_samples+= num_updates_per_iter
         eval_results = eval_fn(model)
         eval_avg_reward = eval_results['eval/avg_reward']
         eval_avg_ep_len = eval_results['eval/avg_ep_len']
@@ -530,10 +642,10 @@ if __name__ == "__main__":
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
     
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = args.torch_deterministic   
+    # random.seed(args.seed)
+    # np.random.seed(args.seed)
+    # torch.manual_seed(args.seed)
+    #torch.backends.cudnn.deterministic = args.torch_deterministic   
 
     # Load dataset
     with open(args.dataset_path, 'rb') as f:
